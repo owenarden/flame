@@ -1,40 +1,101 @@
 (*--build-config 
-  options:--admit_fsi FStar.Set --admit_fsi Flame.FLAM ;
-  other-files: set.fsi Flame_FLAM.fst;
+  options:--admit_fsi FStar.Set ;
+  other-files: set.fsi heap.fst Flame_FLAM.fst;
 --*)
 module Flame.IFC
 
 open Flame.FLAM
 
-open FStar.All
+open FStar.Heap
 open FStar.ST
 open FStar.Set
 
+kind STPre = STPre_h heap
+kind STPost (a:Type) = STPost_h heap a
+kind STWP (a:Type) = STWP_h heap a
+new_effect STATE = STATE_h heap
+
 kind IFCPre (context:Type) = STPre_h context
-kind IFCPost (context:Type) (a:Type) = STPost_h context a
+kind IFCPost (context:Type) (a:Type) = STPost_h context (result a)
+kind IFCWP (context:Type) (a:Type) = STWP_h context (result a)
 
-type IFC (context:Type) (a:Type) (pre:IFCPre context) (post: (context -> IFCPost context a)) =
-  ctx0:context -> Pure (a * context) (pre ctx0) (fun actx -> post (snd actx) (fst actx) ctx0)
+type toWP (#context:Type) (#a:Type) (pre:IFCPre context) (post: (context -> IFCPost context a)) =
+    (fun (p:IFCPost context a) (c:context) -> pre c /\ (forall (r:result a) c1. (pre c /\ post c r c1) ==> p r c1))
 
-type c_rec = (tc:trust_config * pc:prin)
-type c_pre (tc:trust_config) = (fun crec -> subset tc (fst crec) == true)
+type toWLP (#context:Type) (#a:Type) (pre:IFCPre context) (post: (context -> IFCPost context a)) =
+    (fun (p:IFCPost context a) (c:context) -> (forall (r:result a) c1. (pre c /\ post c r c1) ==> p r c1))
+
+type p_rec = (tc:trust_config * h:heap)
+type p_pre (tc:trust_config) : (p_rec -> Type) = (fun prec -> subset tc (fst prec) == true)
+type p_post (#a:Type) (tc:trust_config) = (fun (prec0:p_rec) x (prec1:p_rec) -> subset tc (fst prec0) == true)
+type p_wp (#a:Type) (tc:trust_config) = (toWP #p_rec (p_pre tc) (p_post tc))
+type p_wlp (#a:Type) (tc:trust_config) = (toWLP #p_rec (p_pre tc) (p_post tc))
+
+type c_rec = (tc:trust_config * pc:prin * h:heap)
+let getTC (crec:c_rec) : trust_config = let (tc,_,_) = crec in tc
+let getPC (crec:c_rec) : prin  = let (_,pc,_) = crec in pc
+let getHeap (crec:c_rec) : heap = let (_,_,h) = crec in h
+type c_pre (tc:trust_config) : (c_rec -> Type) = (fun crec -> subset tc (getTC crec) == true)
 type c_post (#a:Type) (tc:trust_config) (pc:prin) = 
-  (fun crec0 (x:a) crec1 -> subset tc (fst crec0) /\ flowsto tc (snd crec0) pc)
-type C (tc:trust_config) (pc:prin) (a:Type) = IFC c_rec a (c_pre tc) (c_post tc pc)
+  (fun (crec0:c_rec) x (crec1:c_rec) -> subset tc (getTC crec0) /\ flowsto tc (getPC crec0) pc)
+type c_wp (#a:Type) (tc:trust_config) (pc:prin) = (toWP #c_rec (c_pre tc) (c_post tc pc))
+type c_wlp (#a:Type) (tc:trust_config) (pc:prin) = (toWLP #c_rec (c_pre tc) (c_post tc pc))
 
-type t_rec = {tc:trust_config; pc:prin; lbl:prin}
-type t_pre (tc:trust_config) (pc:prin) = 
+type t_rec = {tc:trust_config; pc:prin; lbl:prin; h:heap}
+let mktrec (crec:c_rec) (lbl:prin) = {tc = getTC crec; pc= getPC crec; lbl=lbl; h=getHeap crec}
+
+type t_pre (tc:trust_config) (pc:prin) : (t_rec -> Type) = 
   (fun trec -> subset tc trec.tc /\ flowsto tc trec.pc pc)
 type t_post (#a:Type) (tc:trust_config) (pc:prin) (lbl:prin) = 
-  (fun trec0 (x:a) trec1 -> subset tc trec0.tc /\ flowsto tc trec0.pc pc /\ flowsto tc trec0.lbl lbl)
-type T (tc:trust_config) (pc:prin) (lbl:prin) (a:Type) = IFC t_rec a (t_pre tc pc) (t_post tc pc lbl)
+  (fun trec0 x trec1 -> subset tc trec0.tc /\ flowsto tc trec0.pc pc /\ flowsto tc trec0.lbl lbl)
+type t_wp (#a:Type) (tc:trust_config) (pc:prin) (lbl:prin) = (toWP #t_rec #a (t_pre tc pc) (t_post tc pc lbl))
+type t_wlp (#a:Type) (tc:trust_config) (pc:prin) (lbl:prin) = (toWLP #t_rec #a (t_pre tc pc) (t_post tc pc lbl))
 
-type P (tc:trust_config) (a:Type) = 
-  IFC trust_config a (fun tc' -> subset tc tc' == true) (fun tc0 x tc1 -> subset tc tc0 == true)
+kind AllPre = AllPre_h t_rec
+kind AllPost (a:Type) = AllPost_h t_rec a
+kind AllWP (a:Type) = AllWP_h t_rec a
+new_effect ALL = ALL_h t_rec
+default effect ML (a:Type) =
+  ALL a (all_null_wp t_rec a) (all_null_wp t_rec a)
 
-type M (tc:trust_config) (pc:prin) (l:prin) (a:Type) = P tc (C tc pc (T tc pc l a)) 
-val t_return : #a:Type -> tc:trust_config -> pc:prin -> l:prin -> x:a -> Tot (T tc pc l a)
-let t_return (#a:Type) tc pc l x l0 = (x, {tc=tc;pc=pc;lbl=l})
+new_effect TRUST = STATE_h p_rec
+new_effect CTL = STATE_h c_rec
+new_effect DEP = STATE_h t_rec
+effect P (tc:trust_config) (a:Type) = TRUST a (p_wp tc) (p_wlp tc)
+effect C (tc:trust_config) (pc:prin) (a:Type) = CTL a (c_wp tc pc) (c_wlp tc pc)
+effect T (tc:trust_config) (pc:prin) (lbl:prin) (a:Type) = DEP a (t_wp tc pc lbl) (t_wlp tc pc lbl)
+
+sub_effect
+  STATE ~> TRUST = fun (a:Type) (wp:STWP a) (p:IFCPost p_rec a) (prec:p_rec) 
+		  -> (wp (fun a h -> p a prec)) (snd prec)
+sub_effect
+  EXN ~> TRUST = fun (a:Type) (wp:ExWP a) (p:IFCPost p_rec a) (prec:p_rec) -> wp (fun ra -> p ra prec)
+
+//sub_effect
+//  PURE ~> TRUST = fun (a:Type) (wp:PureWP a) (p:IFCPost p_rec a) (prec:p_rec) -> wp (fun a -> p (V a) prec)
+//
+//(* for termination sensitivity, could do something different here? *)
+//sub_effect
+//  DIV ~> TRUST = fun (a:Type) (wp:PureWP a) (p:IFCPost p_rec a) (prec:p_rec) -> wp (fun a -> p (V a) prec)
+
+
+sub_effect
+  TRUST ~> CTL = fun (a:Type) (wp:IFCWP p_rec a) (p:IFCPost c_rec a) (crec:c_rec) 
+		  -> (wp (fun a prec -> p a crec)) ((getTC crec), (getHeap crec))
+sub_effect
+  CTL ~> DEP = fun (a:Type) (wp:IFCWP c_rec a) (p:IFCPost t_rec a) (trec:t_rec) 
+		  -> (wp (fun a crec -> p a (mktrec crec trec.lbl))) (trec.tc,trec.pc,trec.h)
+//sub_effect
+//  DEP ~> ALL = fun (a:Type) (wp:IFCWP t_rec a) (p:AllPost a) -> wp (fun a -> p a)
+
+// monadic effect lattice?
+// DIV ~> STATE ~> P ~> C ~> T ~> ALL
+// DIV ~> EXN ~> P ~> C ~> T ~> ALL
+// DIV ~> A ~> T ~> ALL
+(*
+//effect M (tc:trust_config) (pc:prin) (l:prin) (a:Type) = P tc (C tc pc (T tc pc l)) 
+val t_return : #a:Type -> tc:trust_config -> pc:prin -> l:prin -> x:a -> T tc pc l a
+let t_return (#a:Type) tc pc l x trec0 = (x, {tc=tc;pc=pc;lbl=l;h=trec0.h})
 
 val c_return : #a:Type -> tc:trust_config -> pc:prin -> #l:prin -> x:T tc pc l a -> Tot (C tc pc (T tc pc l a))
 let c_return (#a:Type) tc pc l x pc0 = (x, (tc,pc))
@@ -231,3 +292,4 @@ Inductive prinEq : relation Prin :=
 
 where "p == q" := (prinEq p q).
 *)
+  *)
