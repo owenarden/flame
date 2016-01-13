@@ -1,8 +1,14 @@
 {-# LANGUAGE GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses,
-    DataKinds, RankNTypes, FlexibleInstances, FlexibleContexts #-}
+    DataKinds, RankNTypes, FlexibleInstances, FlexibleContexts, TypeFamilies #-}
 {-# LANGUAGE TypeOperators, PostfixOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE AllowAmbiguousTypes, UndecidableInstances, IncoherentInstances #-}
+
+{-# LANGUAGE Rank2Types, FlexibleContexts, UndecidableInstances, TypeFamilies #-}
+{-# LANGUAGE ConstraintKinds, KindSignatures, PolyKinds, TypeOperators #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, ScopedTypeVariables #-}
+{-# LANGUAGE FunctionalDependencies #-}
+
 module Flame
        (Prin(..) , DPrin(..)
        , C, I
@@ -20,9 +26,14 @@ module Flame
   where
 
 import GHC.TypeLits
+import Data.Constraint
+import Data.Constraint.Unsafe
+import Data.Reflection
+
 import Data.Proxy (Proxy(..))
 import Control.Monad
 import Control.Monad.IO.Class
+import Data.Type.Set
 
 import Network.Wai 
 import Network.Wai.Handler.Warp
@@ -85,12 +96,53 @@ type PT      = Public :∧: Trusted
 (⊔)  p q  = ((p^→) ∧ (q^→)) ∧ ((p^←) ∨ (q^←))
 (⊓)  p q  = ((p^→) ∨ (q^→)) ∧ ((p^←) ∧ (q^←))
 
-top = DTop
-bot = DBot
-public  = DConf bot
-trusted = DInteg top
+ptop = DTop
+pbot = DBot
+public  = DConf pbot
+trusted = DInteg ptop
 publicTrusted = public ∧ trusted           
 
+
+{- From: https://www.schoolofhaskell.com/user/thoughtpolice/using-reflection -}
+--------------------------------------------------------------------------------
+-- Lift/ReifiableConstraint machinery.
+
+data AFType p q l :: Prin -> Prin -> Prin -> *
+--class AFType Prin -> Prin -> Prin -> * where
+--  StDel  :: ActsFor p q => AFType p q l
+--  DynDel :: Lbl l (DPrin p, DPrin q) -> AFType p q l
+-- type PiRec (p::Prin) (q::Prin) (pc::Prin) (l::Prin) = '(AFType p q l, pc)
+
+data Lift (p :: * -> Constraint) (a :: *) (s :: *) = Lift { lower :: a }
+ 
+class ReifiableConstraint p where
+  data Def (p :: * -> Constraint) (a :: *) :: *
+  reifiedIns :: Reifies s (Def p a) :- p (Lift p a s)
+ 
+with :: Def p a -> (forall s. Reifies s (Def p a) => Lift p a s) -> a
+with d v = reify d (lower . asProxyOf v)
+  where
+    asProxyOf :: f s -> Proxy s -> f s
+    asProxyOf x _ = x
+
+--------------------------------------------------------------------------------
+-- Kicking it up to over 9000
+
+using :: forall p a. ReifiableConstraint p => Def p a -> (p a => a) -> a
+using d m = reify d $ \(_ :: Proxy s) ->
+  let replaceProof :: Reifies s (Def p a) :- p a
+      replaceProof = trans proof reifiedIns
+        where proof = unsafeCoerceConstraint :: p (Lift p a s) :- p a
+  in m \\ replaceProof
+
+class StaticActsFor af where
+instance  StaticActsFor (AFType Top q PT) where
+instance  StaticActsFor (AFType q Bot PT) where
+
+--instance ReifiableConstraint (RActsFor p q) where
+--  data Def RActsFor p q = RActsFor p q
+--  reifiedIns = Sub Dict
+-- 
 class ActsFor (p :: Prin) (q :: Prin) where
 instance                                 ActsFor p Bot where
 instance                                 ActsFor Top q where
@@ -178,7 +230,8 @@ instance                               ActsFor (Integ Bot) Bot where
 instance                               ActsFor Bot (Integ Bot) where
 -- what does this mean? what it should mean?
 instance (n1 ~ n2)   =>                ActsFor (Name n1) (Name n2) where
-  
+
+ 
 class PrinEq (p :: Prin) (q :: Prin) where
 instance (ActsFor p q, ActsFor q p) => PrinEq p q where
 {- Substitutions (no symmetry!) -}
@@ -236,16 +289,16 @@ eqTDisjIdemp :: DPrin p -> ()
 eqTDisjIdemp p = assertEq (p ∨ p) p 
 
 eqTConjIdent :: DPrin p -> ()
-eqTConjIdent p = assertEq (p ∧ bot) p 
+eqTConjIdent p = assertEq (p ∧ pbot) p 
                  
 eqTDisjIdent :: DPrin p -> ()
-eqTDisjIdent p = assertEq (p ∨ top) p 
+eqTDisjIdent p = assertEq (p ∨ ptop) p 
 
 eqTConjTop :: DPrin p -> ()
-eqTConjTop p = assertEq (p ∧ top) top 
+eqTConjTop p = assertEq (p ∧ ptop) ptop 
        
 eqTDisjBot :: DPrin p -> ()
-eqTDisjBot p = assertEq (p ∨ bot) bot
+eqTDisjBot p = assertEq (p ∨ pbot) pbot
 
 eqTConjDistDisj :: DPrin p -> DPrin q -> DPrin r -> ()
 eqTConjDistDisj p q r = assertEq (p ∧ (q ∨ r)) ((p ∧ q) ∨ (p ∧ r))
@@ -269,22 +322,22 @@ eqTIntegIdemp :: DPrin p -> ()
 eqTIntegIdemp p = assertEq ((p^←)^←) (p^←)
 
 eqTConfInteg :: DPrin p -> ()
-eqTConfInteg p = assertEq ((p^→)^←) bot
+eqTConfInteg p = assertEq ((p^→)^←) pbot
 
 eqTIntegConf :: DPrin p -> ()
-eqTIntegConf p = assertEq ((p^←)^→) bot
+eqTIntegConf p = assertEq ((p^←)^→) pbot
 
 eqTConfDisjInteg :: DPrin p -> DPrin q -> ()
-eqTConfDisjInteg p q = assertEq ((p^→) ∨ (q^←)) bot
+eqTConfDisjInteg p q = assertEq ((p^→) ∨ (q^←)) pbot
 
 eqTConfIntegBasis :: DPrin p -> ()
 eqTConfIntegBasis p = assertEq ((p^←) ∧ (p^→)) p
 
 eqTBotConf :: ()
-eqTBotConf = assertEq (bot^→) bot
+eqTBotConf = assertEq (pbot^→) pbot
 
 eqTBotInteg :: ()
-eqTBotInteg = assertEq (bot^←) bot
+eqTBotInteg = assertEq (pbot^←) pbot
 
 --eqTConjSubst :: (PrinEq p p', PrinEq q q') => 
 --                  DPrin p -> DPrin p' -> DPrin q -> DPrin q' -> ()
@@ -439,6 +492,38 @@ instance Monad (IFC pc l) where
                                         la <- m
                                         runIFC . k $ unsafeRunLbl la
 
+data Ex (p ::k -> *) where
+  Ex :: p i -> Ex p
+
+type WPrin = Ex DPrin
+
+wrapPrin :: Prin -> WPrin
+wrapPrin Top           = Ex DTop
+wrapPrin Bot           = Ex DBot
+wrapPrin (Name s)      = Ex (DName (Proxy :: Proxy s))
+wrapPrin (Conj p q)    = case wrapPrin p of
+                          Ex p' -> case wrapPrin q of
+                                     Ex q' -> Ex (DConj p' q')
+wrapPrin (Disj p q)    = case wrapPrin p of
+                          Ex p' -> case wrapPrin q of
+                                     Ex q' -> Ex (DDisj p' q')
+wrapPrin (Conf p)      = case wrapPrin p of Ex p' -> Ex (DConf p')
+wrapPrin (Integ p)     = case wrapPrin p of Ex p' -> Ex (DConf p')
+
+--type Pi = Set '[PiRec] 
+
+{- Union operation -}
+type family Union (a :: [k]) (b :: [k]) :: [k]
+
+{- Membership operation -}
+type family Member (a :: k) (b :: [k]) :: Bool where
+            Member x '[]       = False
+            Member x (x ': xs) = True
+            Member x (y ': xs) = Member x xs           
+ 
+--class FLActsFor (pi :: Pi) (p :: Prin) (q :: Prin) where
+
+            
 flaPutStrLn :: (FlowsTo l lblout, FlowsTo pc lblout) => IFC pc l String -> IFC lblout l' ()
 flaPutStrLn str = UnsafeIFC $ do
                                s <- runIFC str 
