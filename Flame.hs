@@ -59,8 +59,6 @@ data Prin =
   | Conf Prin
   | Integ Prin
 
-data SomeName n = KnownSymbol n => SomeName (Proxy n)
-
 {- Singleton GADT for Prin -}
 data DPrin :: Prin -> * where
   DTop   :: DPrin Top
@@ -70,6 +68,25 @@ data DPrin :: Prin -> * where
   DDisj  :: DPrin p -> DPrin q -> DPrin (Disj p q)
   DConf  :: DPrin p -> DPrin (Conf p)
   DInteg :: DPrin p -> DPrin (Integ p)
+
+{- Wrapped principals -}
+data Ex (p ::k -> *) where
+  Ex :: p i -> Ex p
+
+type WPrin = Ex DPrin
+
+wrapPrin :: Prin -> WPrin
+wrapPrin Top           = Ex DTop
+wrapPrin Bot           = Ex DBot
+wrapPrin (Name s)      = Ex (DName (Proxy :: Proxy s))
+wrapPrin (Conj p q)    = case wrapPrin p of
+                          Ex p' -> case wrapPrin q of
+                                     Ex q' -> Ex (DConj p' q')
+wrapPrin (Disj p q)    = case wrapPrin p of
+                          Ex p' -> case wrapPrin q of
+                                     Ex q' -> Ex (DDisj p' q')
+wrapPrin (Conf p)      = case wrapPrin p of Ex p' -> Ex (DConf p')
+wrapPrin (Integ p)     = case wrapPrin p of Ex p' -> Ex (DConf p')
 
 {- Some notation help -}
 type C p = Conf p
@@ -102,136 +119,111 @@ public  = DConf pbot
 trusted = DInteg ptop
 publicTrusted = public ∧ trusted           
 
+data AFType (p :: Prin) (q :: Prin) = AFType { sup :: DPrin p, inf :: DPrin q}
 
-{- From: https://www.schoolofhaskell.com/user/thoughtpolice/using-reflection -}
---------------------------------------------------------------------------------
--- Lift/ReifiableConstraint machinery.
-
-data AFType p q l :: Prin -> Prin -> Prin -> *
---class AFType Prin -> Prin -> Prin -> * where
---  StDel  :: ActsFor p q => AFType p q l
---  DynDel :: Lbl l (DPrin p, DPrin q) -> AFType p q l
--- type PiRec (p::Prin) (q::Prin) (pc::Prin) (l::Prin) = '(AFType p q l, pc)
-
-data Lift (p :: * -> Constraint) (a :: *) (s :: *) = Lift { lower :: a }
- 
-class ReifiableConstraint p where
-  data Def (p :: * -> Constraint) (a :: *) :: *
-  reifiedIns :: Reifies s (Def p a) :- p (Lift p a s)
- 
-with :: Def p a -> (forall s. Reifies s (Def p a) => Lift p a s) -> a
-with d v = reify d (lower . asProxyOf v)
-  where
-    asProxyOf :: f s -> Proxy s -> f s
-    asProxyOf x _ = x
-
---------------------------------------------------------------------------------
--- Kicking it up to over 9000
-
-using :: forall p a. ReifiableConstraint p => Def p a -> (p a => a) -> a
-using d m = reify d $ \(_ :: Proxy s) ->
-  let replaceProof :: Reifies s (Def p a) :- p a
-      replaceProof = trans proof reifiedIns
-        where proof = unsafeCoerceConstraint :: p (Lift p a s) :- p a
-  in m \\ replaceProof
-
-class StaticActsFor af where
-instance  StaticActsFor (AFType Top q PT) where
-instance  StaticActsFor (AFType q Bot PT) where
-
---instance ReifiableConstraint (RActsFor p q) where
---  data Def RActsFor p q = RActsFor p q
---  reifiedIns = Sub Dict
--- 
-class ActsFor (p :: Prin) (q :: Prin) where
-instance                                 ActsFor p Bot where
-instance                                 ActsFor Top q where
-instance ActsFor p1 q =>                 ActsFor (Conj p1 p2) q where
---instance ActsFor p2 q =>                 ActsFor (Conj p1 p2) q where
-instance (ActsFor p q1, ActsFor p q2) => ActsFor p (Conj q1 q2) where
-instance (ActsFor p1 q, ActsFor p2 q) => ActsFor (Disj p1 p2) q where
-instance ActsFor p q1 =>                 ActsFor p (Disj q1 q2) where
---instance ActsFor p q2 =>                 ActsFor p (Disj q1 q2) where
-instance ActsFor p q =>                  ActsFor (Conf p) (Conf q)
-instance ActsFor p q =>                  ActsFor (Integ p) (Integ q)
-instance                                 ActsFor p (Conf q)
-instance                                 ActsFor p (Integ q)
---instance (ActsFor p q, ActsFor q r) =>   ActsFor p r where
-{- Symmetric relationships (see prinEq is Coq proof) -}
-{- reflexivity -}
-instance                               ActsFor p p where
+{- Type class for the FLAC static acts-for relation, including 
+   relationships deriving from principal equivalence. -}
+class AFRel del where
+{- Bot -}
+instance                                               AFRel (AFType p Bot) where
+{- Top -}
+instance                                               AFRel (AFType Top q) where
+{- Refl -}
+instance                                               AFRel (AFType p p) where
+{- ConjL -}
+instance AFRel (AFType p1 q) =>                        AFRel (AFType (Conj p1 p2) q) where
+{- ConjR -}
+instance (AFRel (AFType p q1), AFRel (AFType p q2)) => AFRel (AFType p (Conj q1 q2)) where
+{- DisjL -}
+instance (AFRel (AFType p1 q), AFRel (AFType p2 q)) => AFRel (AFType (Disj p1 p2) q) where
+{- DisjR -}
+instance AFRel (AFType p q1) =>                        AFRel (AFType p (Disj q1 q2)) where
+{- Proj (Conf) -}
+instance AFRel (AFType p q) =>                         AFRel (AFType (Conf p) (Conf q))
+{- Proj (Integ) -}
+instance AFRel (AFType p q) =>                         AFRel (AFType (Integ p) (Integ q))
+{- ProjR (Conf) -}
+instance                                               AFRel (AFType p (Conf q)) 
+{- ProjR (Integ) -}
+instance                                               AFRel (AFType p (Integ q)) 
+{- Trans -}
+instance (AFRel (AFType p q) , AFRel (AFType q r)) =>  AFRel (AFType p r) where
+{- Equivalence relationships (see prinEq is Coq proof) -}
 {- Lattice commutativity -}
-instance                               ActsFor (Conj p q) (Conj q p) where
-instance                               ActsFor (Disj p q) (Disj q p) where
+instance                               AFRel (AFType (Conj p q) (Conj q p)) where
+instance                               AFRel (AFType (Disj p q) (Disj q p)) where
 {- Lattice associativity (+ symmetry) -}
-instance                               ActsFor (Conj (Conj p q) r) (Conj p (Conj q r)) where
-instance                               ActsFor (Conj p (Conj q r)) (Conj (Conj p q) r) where
-instance                               ActsFor (Disj (Disj p q) r) (Disj p (Disj q r)) where
-instance                               ActsFor (Disj p (Disj q r)) (Disj (Disj p q) r) where
+instance                               AFRel (AFType (Conj (Conj p q) r) (Conj p (Conj q r))) where
+instance                               AFRel (AFType (Conj p (Conj q r)) (Conj (Conj p q) r)) where
+instance                               AFRel (AFType (Disj (Disj p q) r) (Disj p (Disj q r))) where
+instance                               AFRel (AFType (Disj p (Disj q r)) (Disj (Disj p q) r)) where
 {- Lattice absorption (+ symmetry) -}
-instance                               ActsFor (Conj p (Disj p q)) p where
-instance                               ActsFor p (Conj p (Disj p q)) where
-instance                               ActsFor (Disj p (Conj p q)) p where
-instance                               ActsFor p (Disj p (Conj p q)) where
+instance                               AFRel (AFType (Conj p (Disj p q)) p) where
+instance                               AFRel (AFType p (Conj p (Disj p q))) where
+instance                               AFRel (AFType (Disj p (Conj p q)) p) where
+instance                               AFRel (AFType p (Disj p (Conj p q))) where
 {- Lattice idempotence (+ symmetry) -}
-instance                               ActsFor (Conj p p) p where
-instance                               ActsFor p (Conj p p) where
-instance                               ActsFor (Disj p p)  p where
-instance                               ActsFor p (Disj p p) where
+instance                               AFRel (AFType (Conj p p) p) where
+instance                               AFRel (AFType p (Conj p p)) where
+instance                               AFRel (AFType (Disj p p) p) where
+instance                               AFRel (AFType p (Disj p p)) where
 {- Lattice identity (+ symmetry) -}
-instance                               ActsFor (Conj p Bot) p where
-instance                               ActsFor p (Conj p Bot) where
-instance                               ActsFor (Disj p Top) p where
-instance                               ActsFor p (Disj p Top) where
-instance                               ActsFor (Conj p Top) Top where
-instance                               ActsFor Top (Conj p Top) where
-instance                               ActsFor (Disj p Bot) Bot where
-instance                               ActsFor Bot (Disj p Bot) where
+instance                               AFRel (AFType (Conj p Bot) p) where
+instance                               AFRel (AFType p (Conj p Bot)) where
+instance                               AFRel (AFType (Disj p Top) p) where
+instance                               AFRel (AFType p (Disj p Top)) where
+instance                               AFRel (AFType (Conj p Top) Top) where
+instance                               AFRel (AFType Top (Conj p Top)) where
+instance                               AFRel (AFType (Disj p Bot) Bot) where
+instance                               AFRel (AFType Bot (Disj p Bot)) where
 {- Lattice distributivity (+ symmetry) -}
-instance                               ActsFor (Conj p (Disj q r)) 
-                                              (Disj (Conj p q) (Conj p j)) where
-instance                               ActsFor (Disj (Conj p q) (Conj p j))
-                                              (Conj p (Disj q r)) where
+instance                               AFRel (AFType (Conj p (Disj q r))
+                                                       (Disj (Conj p q) (Conj p j)) )  where
+instance                               AFRel (AFType (Disj (Conj p q) (Conj p j))
+                                                       (Conj p (Disj q r))) where
 {- Authority projections, property 3: distribution over conjunctions (+ symmetry) -}
-instance                               ActsFor (Conj (Conf p) (Conf q)) (Conf (Conj p q)) where
-instance                               ActsFor (Conf (Conj p q)) (Conj (Conf p) (Conf q))  where
-instance                               ActsFor (Conj (Integ p) (Integ q)) (Integ (Conj p q)) where
-instance                               ActsFor (Integ (Conj p q)) (Conj (Integ p) (Integ q))  where
+instance                               AFRel (AFType (Conj (Conf p) (Conf q)) (Conf (Conj p q)) ) where
+instance                               AFRel (AFType (Conf (Conj p q)) (Conj (Conf p) (Conf q))  ) where
+instance                               AFRel (AFType (Conj (Integ p) (Integ q)) (Integ (Conj p q)) ) where
+instance                               AFRel (AFType (Integ (Conj p q)) (Conj (Integ p) (Integ q))  ) where
 
 {- Authority projections, property 4: distribution over disjunctions (+ symmetry) -}
-instance                               ActsFor (Conf (Disj p q)) (Disj (Conf p) (Conf q)) where
-instance                               ActsFor (Disj (Conf p) (Conf q)) (Conf (Disj p q)) where
-instance                               ActsFor (Integ (Disj p q)) (Disj (Integ p) (Integ q)) where
-instance                               ActsFor (Disj (Integ p) (Integ q)) (Integ (Disj p q)) where
+instance                               AFRel (AFType (Conf (Disj p q)) (Disj (Conf p) (Conf q)) ) where
+instance                               AFRel (AFType (Disj (Conf p) (Conf q)) (Conf (Disj p q)) ) where
+instance                               AFRel (AFType (Integ (Disj p q)) (Disj (Integ p) (Integ q)) ) where
+instance                               AFRel (AFType (Disj (Integ p) (Integ q)) (Integ (Disj p q)) ) where
 {- Authority projections, property 5: idempotence (+ symmetry)-}
-instance                               ActsFor (Conf (Conf p)) (Conf p) where
-instance                               ActsFor (Conf p) (Conf (Conf p)) where
-instance                               ActsFor (Integ (Integ p)) (Integ p) where
-instance                               ActsFor (Integ p) (Integ (Integ p)) where
+instance                               AFRel (AFType (Conf (Conf p)) (Conf p) ) where
+instance                               AFRel (AFType (Conf p) (Conf (Conf p)) ) where
+instance                               AFRel (AFType (Integ (Integ p)) (Integ p) ) where
+instance                               AFRel (AFType (Integ p) (Integ (Integ p)) ) where
 {- Basis projections, properties 2-3 (+ symmetry)-}
-instance                               ActsFor Bot (Conf (Integ p)) where
---instance                               ActsFor (Integ (Conf p)) Bot where
-instance                               ActsFor Bot (Integ (Conf p)) where
---instance                               ActsFor (Disj (Conf p) (Integ q)) Bot where
-instance                               ActsFor Bot (Disj (Conf p) (Integ q)) where
+instance                               AFRel (AFType Bot (Conf (Integ p)) ) where
+--instance                               AFRel (AFType (Integ (Conf p)) Bot ) where
+instance                               AFRel (AFType Bot (Integ (Conf p)) ) where
+--instance                               AFRel (AFType (Disj (Conf p) (Integ q)) Bot ) where
+instance                               AFRel (AFType Bot (Disj (Conf p) (Integ q)) ) where
 -- Why does the solver need help on these equivalences to bottom? b/c transitivity?
-instance                               ActsFor (Conf (Integ p)) (Conf (Integ q)) where
-instance                               ActsFor (Integ (Conf p)) (Integ (Conf q)) where
-instance                               ActsFor (Conf (Integ p)) (Integ (Conf p)) where
-instance                               ActsFor (Integ (Conf p)) (Conf (Integ q)) where
+instance                               AFRel (AFType (Conf (Integ p)) (Conf (Integ q)) ) where
+instance                               AFRel (AFType (Integ (Conf p)) (Integ (Conf q)) ) where
+instance                               AFRel (AFType (Conf (Integ p)) (Integ (Conf p)) ) where
+instance                               AFRel (AFType (Integ (Conf p)) (Conf (Integ q)) ) where
 {- Admitted equivalences (+ symmetry)-}
-instance                               ActsFor (Conj (Conf p) (Integ p)) p where
-instance                               ActsFor p (Conj (Conf p) (Integ p)) where
-instance                               ActsFor (Conj (Integ p) (Conf p)) p where
-instance                               ActsFor p (Conj (Integ p) (Conf p)) where
-instance                               ActsFor (Conf Bot) Bot where
-instance                               ActsFor Bot (Conf Bot) where
-instance                               ActsFor (Integ Bot) Bot where
-instance                               ActsFor Bot (Integ Bot) where
+instance                               AFRel (AFType (Conj (Conf p) (Integ p)) p ) where
+instance                               AFRel (AFType p (Conj (Conf p) (Integ p)) ) where
+instance                               AFRel (AFType (Conj (Integ p) (Conf p)) p ) where
+instance                               AFRel (AFType p (Conj (Integ p) (Conf p)) ) where
+instance                               AFRel (AFType (Conf Bot) Bot ) where
+instance                               AFRel (AFType Bot (Conf Bot) ) where
+instance                               AFRel (AFType (Integ Bot) Bot ) where
+instance                               AFRel (AFType Bot (Integ Bot) ) where
 -- what does this mean? what it should mean?
-instance (n1 ~ n2)   =>                ActsFor (Name n1) (Name n2) where
+instance (n1 ~ n2)   =>                AFRel (AFType (Name n1) (Name n2) ) where
 
  
+class ActsFor (p :: Prin) (q :: Prin) where
+instance AFRel (AFType p q) => ActsFor p q where
+
 class PrinEq (p :: Prin) (q :: Prin) where
 instance (ActsFor p q, ActsFor q p) => PrinEq p q where
 {- Substitutions (no symmetry!) -}
@@ -492,38 +484,48 @@ instance Monad (IFC pc l) where
                                         la <- m
                                         runIFC . k $ unsafeRunLbl la
 
-data Ex (p ::k -> *) where
-  Ex :: p i -> Ex p
 
-type WPrin = Ex DPrin
+{- Machinery for dynamically extending the acts-for relation 
+   From: https://www.schoolofhaskell.com/user/thoughtpolice/using-reflection -}
+-- Should not be exported? 
+data Lift (p :: * -> Constraint) (a :: *) (s :: *) = Lift { lower :: a }
 
-wrapPrin :: Prin -> WPrin
-wrapPrin Top           = Ex DTop
-wrapPrin Bot           = Ex DBot
-wrapPrin (Name s)      = Ex (DName (Proxy :: Proxy s))
-wrapPrin (Conj p q)    = case wrapPrin p of
-                          Ex p' -> case wrapPrin q of
-                                     Ex q' -> Ex (DConj p' q')
-wrapPrin (Disj p q)    = case wrapPrin p of
-                          Ex p' -> case wrapPrin q of
-                                     Ex q' -> Ex (DDisj p' q')
-wrapPrin (Conf p)      = case wrapPrin p of Ex p' -> Ex (DConf p')
-wrapPrin (Integ p)     = case wrapPrin p of Ex p' -> Ex (DConf p')
-
---type Pi = Set '[PiRec] 
-
-{- Union operation -}
-type family Union (a :: [k]) (b :: [k]) :: [k]
-
-{- Membership operation -}
-type family Member (a :: k) (b :: [k]) :: Bool where
-            Member x '[]       = False
-            Member x (x ': xs) = True
-            Member x (y ': xs) = Member x xs           
+-- Should not be exported? 
+class ReifiableConstraint p where
+  data Def (p :: * -> Constraint) (a :: *) :: *
+  reifiedIns :: Reifies s (Def p a) :- p (Lift p a s)
  
---class FLActsFor (pi :: Pi) (p :: Prin) (q :: Prin) where
+-- added 'b' to allow more general computation qualified by constraint p
+-- Should not be exported (directly).
+using :: forall p a b. ReifiableConstraint p => Def p a -> (p a => b) -> b
+using d m = reify d $ \(_ :: Proxy s) ->
+  let replaceProof :: Reifies s (Def p a) :- p a
+      replaceProof = trans proof reifiedIns
+        where proof = unsafeCoerceConstraint :: p (Lift p a s) :- p a
+  in m \\ replaceProof
 
-            
+instance ReifiableConstraint AFRel where
+  data Def AFRel (AFType p q) = DAFType { sup_ :: DPrin p, inf_ :: DPrin q}
+  reifiedIns = Sub Dict
+
+instance Reifies s (Def AFRel a) => AFRel (Lift AFRel a s) where
+
+assertAFRel :: AFRel (AFType p q) => DPrin p -> DPrin q -> () 
+assertAFRel p q = ()
+
+type DAFType p q = Def AFRel (AFType p q)
+dynAF :: DPrin p -> DPrin q -> DAFType p q
+dynAF p q = DAFType p q
+
+afTest :: ()
+afTest = using (dynAF alice ptop) $ using (dynAF pbot ptop) $ assertAFRel (alice ∨ pbot) ptop
+
+-- TODO Voice
+assume :: (ActsFor pc (Integ q), ActsFor l (Integ q)) => IFC pc l (DAFType p q) -> (AFRel (AFType p q) => IFC pc' l' b) -> IFC pc' l' b 
+assume lpf m = UnsafeIFC $ do
+                  pf <- runIFC lpf  
+                  runIFC $ using (unsafeRunLbl pf) m 
+
 flaPutStrLn :: (FlowsTo l lblout, FlowsTo pc lblout) => IFC pc l String -> IFC lblout l' ()
 flaPutStrLn str = UnsafeIFC $ do
                                s <- runIFC str 
