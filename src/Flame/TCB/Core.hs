@@ -2,56 +2,40 @@
     DataKinds, RankNTypes, FlexibleInstances, FlexibleContexts, TypeFamilies #-}
 {-# LANGUAGE TypeOperators, PostfixOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE AllowAmbiguousTypes, UndecidableInstances, IncoherentInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE IncoherentInstances #-}
 
 {-# LANGUAGE Rank2Types, FlexibleContexts, UndecidableInstances, TypeFamilies #-}
 {-# LANGUAGE ConstraintKinds, KindSignatures, PolyKinds, TypeOperators #-}
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, ScopedTypeVariables #-}
 {-# LANGUAGE FunctionalDependencies #-}
 
-module Flame
-       (Prin(..) , SPrin(..)
-       , C, I
-       , PT, Public, Trusted
-       , public, trusted, publicTrusted
-       , IFC, runIFC
-       , protect
-       , Lbl
-       , label
-       , unlabel
-       , flaReadFile
-       , flaRun
-       , IFCController, IFCApplication
-       )
+{-# LANGUAGE StandaloneDeriving #-}
+module Flame.TCB.Core
+--       (Prin(..) , SPrin(..)
+--       , C, I
+--       , PT, Public, Trusted
+--       , public, trusted, publicTrusted
+--       , IFC, runIFC
+--       , protect
+--       , Lbl
+--       , label
+--       , unlabel
+--       , flaReadFile
+--       , flaRun
+--       , IFCController, IFCApplication
+--       )
   where
 
 import GHC.TypeLits
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
-import Data.Nat
   
 import qualified Data.Map.Strict as Map
 
 import Data.Proxy (Proxy(..))
-import Control.Monad
-import Control.Monad.IO.Class
-
-import Network.Wai 
-import Network.Wai.Handler.Warp
-
-import qualified Data.ByteString as S
-
-import Web.Simple.Controller.Trans
-
-type IFCApplication (pc::KPrin) (l::KPrin) = Request
-                      -> (Response -> IFC pc l ResponseReceived)
-                      -> IFC pc l ResponseReceived
-type IFCController (pc::KPrin) (l::KPrin) s = ControllerT s (IFC pc l)
-
--- TODO: move network stuff to Flame.Simple and Flame.Network.Wai
--- TODO: move IO stuff to 
-
 {- The principal data type -}
 data Prin =
   Top
@@ -82,24 +66,14 @@ data SPrin :: KPrin -> * where
   SConf  :: SPrin p -> SPrin (KConf p)
   SInteg :: SPrin p -> SPrin (KInteg p)
 
+deriving instance Show (SPrin p)
+
 {- Existential wrapper -}
 data Ex (p ::k -> *) where
   Ex :: p i -> Ex p
 
-{- Existential type-level principals -}
+--{- Existential type-level principals -}
 type WPrin = Ex SPrin
-wrapPrin :: KPrin -> WPrin
-wrapPrin KTop           = Ex STop
-wrapPrin KBot           = Ex SBot
-wrapPrin (KName n)      = Ex (SName (Proxy :: Proxy n))
-wrapPrin (KConj p q)    = case wrapPrin p of
-                          Ex p' -> case wrapPrin q of
-                                     Ex q' -> Ex (SConj p' q')
-wrapPrin (KDisj p q)    = case wrapPrin p of
-                          Ex p' -> case wrapPrin q of
-                                     Ex q' -> Ex (SDisj p' q')
-wrapPrin (KConf p)      = case wrapPrin p of Ex p' -> Ex (SConf p')
-wrapPrin (KInteg p)     = case wrapPrin p of Ex p' -> Ex (SConf p')
 
 {- Promote runtime principals to existentially-wrapped principal types -}
 promote :: Prin -> WPrin
@@ -165,127 +139,140 @@ static = st
 (<=>) :: Prin -> SPrin p -> Bound p
 p <=> sp = UnsafeBindP p sp
 
-data AFType (p :: KPrin) (q :: KPrin) = AFType { sup :: Bound p, inf :: Bound q}
+data AFType (p :: KPrin) (q :: KPrin) = AFType { sup :: SPrin p, inf :: SPrin q}
+
+data FlowType (l :: KPrin) (l' :: KPrin) = FlowType { finf :: SPrin l, fsup :: SPrin l'}
 
 {- Type class for the FLAC static acts-for relation, including 
    relationships deriving from principal equivalence. -}
 class AFRel del where
 {- Bot -}
-instance                                               AFRel (AFType p KBot) where
+instance                              AFRel (AFType p KBot) where
 {- Top -}
-instance                                               AFRel (AFType KTop q) where
+instance                              AFRel (AFType KTop q) where
 {- Refl -}
-instance                                               AFRel (AFType p p) where
+instance                              AFRel (AFType p p) where
 {- ConjL -}
-instance AFRel (AFType p1 q) =>                        AFRel (AFType (p1 :∧: p2) q) where
+instance  AFRel (AFType p1 q) =>                        AFRel (AFType (p1 :∧: p2) q) where
 {- ConjR -}
-instance (AFRel (AFType p q1), AFRel (AFType p q2)) => AFRel (AFType p (q1 :∧: q2)) where
+instance  (AFRel (AFType p q1), AFRel (AFType p q2)) => AFRel (AFType p (q1 :∧: q2)) where
 {- DisjL -}
-instance (AFRel (AFType p1 q), AFRel (AFType p2 q)) => AFRel (AFType (p1 :∨: p2) q) where
+instance  (AFRel (AFType p1 q), AFRel (AFType p2 q)) => AFRel (AFType (p1 :∨: p2) q) where
 {- DisjR -}
-instance AFRel (AFType p q1) =>                        AFRel (AFType p (q1 :∨: q2)) where
+instance  AFRel (AFType p q1) =>                        AFRel (AFType p (q1 :∨: q2)) where
 {- Proj (C) -}
-instance AFRel (AFType p q) =>                         AFRel (AFType (C p) (C q))
+instance  AFRel (AFType p q) =>                         AFRel (AFType (C p) (C q))
 {- Proj (I) -}
-instance AFRel (AFType p q) =>                         AFRel (AFType (I p) (I q))
+instance  AFRel (AFType p q) =>                         AFRel (AFType (I p) (I q))
 {- ProjR (C) -}
-instance                                               AFRel (AFType p (C q)) 
+instance                                                AFRel (AFType p (C p)) 
 {- ProjR (I) -}
-instance                                               AFRel (AFType p (I q)) 
+instance                                               AFRel (AFType p (I p)) 
 {- Trans -}
 instance (AFRel (AFType p q) , AFRel (AFType q r)) =>  AFRel (AFType p r) where
 {- Equivalence relationships (see prinEq is Coq proof) -}
 {- Lattice commutativity -}
-instance                               AFRel (AFType (p :∧: q) (q :∧: p)) where
-instance                               AFRel (AFType (p :∨: q) (q :∨: p)) where
+instance               AFRel (AFType (p :∧: q) (q :∧: p)) where
+instance               AFRel (AFType (p :∨: q) (q :∨: p)) where
 {- Lattice associativity (+ symmetry) -}
-instance                               AFRel (AFType ((p :∧: q) :∧: r) (p :∧: (q :∧: r))) where
-instance                               AFRel (AFType (p :∧: (q :∧: r)) ((p :∧: q) :∧: r)) where
-instance                               AFRel (AFType ((p :∨: q) :∨: r) (p :∨: (q :∨: r))) where
-instance                               AFRel (AFType (p :∨: (q :∨: r)) ((p :∨: q) :∨: r)) where
+instance               AFRel (AFType ((p :∧: q) :∧: r) (p :∧: (q :∧: r))) where
+instance               AFRel (AFType (p :∧: (q :∧: r)) ((p :∧: q) :∧: r)) where
+instance               AFRel (AFType ((p :∨: q) :∨: r) (p :∨: (q :∨: r))) where
+instance               AFRel (AFType (p :∨: (q :∨: r)) ((p :∨: q) :∨: r)) where
 {- Lattice absorption (+ symmetry) -}
-instance                               AFRel (AFType (p :∧: (p :∨: q)) p) where
-instance                               AFRel (AFType p (p :∧: (p :∨: q))) where
-instance                               AFRel (AFType (p :∨: (p :∧: q)) p) where
-instance                               AFRel (AFType p (p :∨: (p :∧: q))) where
+instance                              AFRel (AFType (p :∧: (p :∨: q)) p) where
+instance                              AFRel (AFType p (p :∧: (p :∨: q))) where
+instance                              AFRel (AFType (p :∨: (p :∧: q)) p) where
+instance                              AFRel (AFType p (p :∨: (p :∧: q))) where
 {- Lattice idempotence (+ symmetry) -}
-instance                               AFRel (AFType (p :∧: p) p) where
-instance                               AFRel (AFType p (p :∧: p)) where
-instance                               AFRel (AFType (p :∨: p) p) where
-instance                               AFRel (AFType p (p :∨: p)) where
+instance                              AFRel (AFType (p :∧: p) p) where
+instance                              AFRel (AFType p (p :∧: p)) where
+instance                              AFRel (AFType (p :∨: p) p) where
+instance                              AFRel (AFType p (p :∨: p)) where
 {- Lattice identity (+ symmetry) -}
-instance                               AFRel (AFType (p :∧: KBot) p) where
-instance                               AFRel (AFType p (p :∧: KBot)) where
-instance                               AFRel (AFType (p :∨: KTop) p) where
-instance                               AFRel (AFType p (p :∨: KTop)) where
-instance                               AFRel (AFType (p :∧: KTop) KTop) where
-instance                               AFRel (AFType KTop (p :∧: KTop)) where
-instance                               AFRel (AFType (p :∨: KBot) KBot) where
-instance                               AFRel (AFType KBot (p :∨: KBot)) where
+instance                              AFRel (AFType (p :∧: KBot) p) where
+instance                              AFRel (AFType p (p :∧: KBot)) where
+instance                              AFRel (AFType (p :∨: KTop) p) where
+instance                              AFRel (AFType p (p :∨: KTop)) where
+instance                              AFRel (AFType (p :∧: KTop) KTop) where
+instance                              AFRel (AFType KTop (p :∧: KTop)) where
+instance                              AFRel (AFType (p :∨: KBot) KBot) where
+instance                              AFRel (AFType KBot (p :∨: KBot)) where
 {- Lattice distributivity (+ symmetry) -}
-instance                               AFRel (AFType (p :∧: (q :∨: r))
+instance                              AFRel (AFType (p :∧: (q :∨: r))
                                                        ((p :∧: q) :∨: (p :∧: r)))  where
-instance                               AFRel (AFType ((p :∧: q) :∨: (p :∧: r))
+instance                              AFRel (AFType ((p :∧: q) :∨: (p :∧: r))
                                                        (p :∧: (q :∨: r))) where
 {- Authority projections, property 3: distribution over conjunctions (+ symmetry) -}
-instance                               AFRel (AFType ((C p) :∧: (C q)) (C (p :∧: q))) where
-instance                               AFRel (AFType (C (p :∧: q)) ((C p) :∧: (C q))) where
-instance                               AFRel (AFType ((I p) :∧: (I q)) (I (p :∧: q))) where
-instance                               AFRel (AFType (I (p :∧: q)) ((I p) :∧: (I q))) where
+instance                              AFRel (AFType ((C p) :∧: (C q)) (C (p :∧: q))) where
+instance                              AFRel (AFType (C (p :∧: q)) ((C p) :∧: (C q))) where
+instance                              AFRel (AFType ((I p) :∧: (I q)) (I (p :∧: q))) where
+instance                              AFRel (AFType (I (p :∧: q)) ((I p) :∧: (I q))) where
 
 {- Authority projections, property 4: distribution over disjunctions (+ symmetry) -}
-instance                               AFRel (AFType (C (p :∨: q)) ((C p) :∨: (C q))) where
-instance                               AFRel (AFType ((C p) :∨: (C q)) (C (p :∨: q))) where
-instance                               AFRel (AFType (I (p :∨: q)) ((I p) :∨: (I q))) where
-instance                               AFRel (AFType ((I p) :∨: (I q)) (I (p :∨: q))) where
+instance                              AFRel (AFType (C (p :∨: q)) ((C p) :∨: (C q))) where
+instance                              AFRel (AFType ((C p) :∨: (C q)) (C (p :∨: q))) where
+instance                              AFRel (AFType (I (p :∨: q)) ((I p) :∨: (I q))) where
+instance                              AFRel (AFType ((I p) :∨: (I q)) (I (p :∨: q))) where
 {- Authority projections, property 5: idempotence (+ symmetry)-}
-instance                               AFRel (AFType (C (C p)) (C p)) where
-instance                               AFRel (AFType (C p) (C (C p))) where
-instance                               AFRel (AFType (I (I p)) (I p)) where
-instance                               AFRel (AFType (I p) (I (I p))) where
+instance                              AFRel (AFType (C (C p)) (C p)) where
+instance                              AFRel (AFType (C p) (C (C p))) where
+instance                              AFRel (AFType (I (I p)) (I p)) where
+instance                              AFRel (AFType (I p) (I (I p))) where
 {- Basis projections, properties 2-3 (+ symmetry)-}
-instance                               AFRel (AFType KBot (C (I p))) where
---instance                               AFRel (AFType (I (C p)) KBot ) where
-instance                               AFRel (AFType KBot (I (C p))) where
---instance                               AFRel (AFType (:∨: (C p) (I q)) KBot ) where
-instance                               AFRel (AFType KBot ((C p) :∨: (I q))) where
+instance                              AFRel (AFType KBot (C (I p))) where
+instance                              AFRel (AFType (I (C p)) KBot ) where
+instance                              AFRel (AFType KBot (I (C p))) where
+instance                              AFRel (AFType ((C p) :∨: (I q)) KBot ) where
+instance                              AFRel (AFType KBot ((C p) :∨: (I q))) where
 -- Why does the solver need help on these equivalences to bottom? b/c transitivity?
-instance                               AFRel (AFType (C (I p)) (C (I q))) where
-instance                               AFRel (AFType (I (C p)) (I (C q))) where
-instance                               AFRel (AFType (C (I p)) (I (C p))) where
-instance                               AFRel (AFType (I (C p)) (C (I q))) where
+instance                              AFRel (AFType (C (I p)) (C (I q))) where
+instance                              AFRel (AFType (I (C p)) (I (C q))) where
+--instance                              AFRel (AFType (C p) (I q)) where
+--instance                              AFRel (AFType (I p) (C q)) where
 {- Admitted equivalences (+ symmetry)-}
-instance                               AFRel (AFType ((C p) :∧: (I p)) p) where
-instance                               AFRel (AFType p ((C p) :∧: (I p))) where
-instance                               AFRel (AFType ((I p) :∧: (C p)) p) where
-instance                               AFRel (AFType p ((I p) :∧: (C p))) where
-instance                               AFRel (AFType (C KBot) KBot) where
-instance                               AFRel (AFType KBot (C KBot)) where
-instance                               AFRel (AFType (I KBot) KBot) where
-instance                               AFRel (AFType KBot (I KBot)) where
---instance (n1 ~ n2)   =>       AFRel (AFType (KName n1) (KName n2)) where
+instance                              AFRel (AFType ((C p) :∧: (I p)) p) where
+instance                              AFRel (AFType p ((C p) :∧: (I p))) where
+instance                              AFRel (AFType ((I p) :∧: (C p)) p) where
+instance                              AFRel (AFType p ((I p) :∧: (C p))) where
+instance                              AFRel (AFType (C KBot) KBot) where
+instance                              AFRel (AFType KBot (C KBot)) where
+instance                              AFRel (AFType (I KBot) KBot) where
+instance                              AFRel (AFType KBot (I KBot)) where
+-- Necessary?
+--instance   (n1 ~ n2)   =>             AFRel (AFType (KName n1) (KName n2)) where
 
- 
-class ActsFor (p :: KPrin) (q :: KPrin) where
+{- Exported actsfor relation -} 
+class AFRel (AFType p q) => ActsFor (p :: KPrin) (q :: KPrin) where
 instance AFRel (AFType p q) => ActsFor p q where
 
-class PrinEq (p :: KPrin) (q :: KPrin) where
-instance (ActsFor p q, ActsFor q p) => PrinEq p q where
+class EqRel (p :: KPrin) (q :: KPrin) where
+instance (ActsFor p q, ActsFor q p) => EqRel p q where
 {- Substitutions (no symmetry!) -}
 --instance (PrinEq p p', PrinEq q q') => PrinEq (Conj p q) (Conj p' q') where
 --instance (PrinEq p p', PrinEq q q') => PrinEq (Disj p q) (Disj p' q') where
 --instance PrinEq p p' =>                PrinEq (Conf p) (Conf p') where
 --instance PrinEq p p' =>                PrinEq (Integ p) (Integ p') where
 
-class FlowsTo (l :: KPrin) (l' :: KPrin) where
-instance ActsFor p q => FlowsTo ((C q) :∧: (I p)) ((C p) :∧: (I q))  where
-instance (ActsFor (C l') (C l), ActsFor (I l) (I l')) => FlowsTo l l'
+
+{- Exported equivalence relation -} 
+class EqRel p q => PrinEq (p :: KPrin) (q :: KPrin) where
+instance EqRel p q => PrinEq p q
+
+class FlowRel del  where
+instance ActsFor p q => FlowRel (FlowType ((C q) :∧: (I p)) ((C p) :∧: (I q)))  where
+instance (ActsFor (C l') (C l), ActsFor (I l) (I l')) => FlowRel (FlowType l l')
 -- some redundant cases to help out the inference algorithm.
-instance                                 FlowsTo (C KBot) (C l) 
-instance                                 FlowsTo (I KTop) l
-instance                                 FlowsTo l (C KTop) 
-instance ActsFor (C l') (C l) =>         FlowsTo (C l) (C l')
-instance ActsFor (I l') (I l) =>         FlowsTo (I l') (I l)
+instance (ActsFor (C l'c) (C lc), ActsFor (I li) (I l'i)) => FlowRel (FlowType ((C lc) :∧: (I li)) ((C l'c) :∧: (I l'i)))
+--instance ActsFor (C l') (C l) =>         FlowRel (FlowType (C l) (C l'))
+--instance ActsFor (I l') (I l) =>         FlowRel (FlowType (I l') (I l))
+--instance                                 FlowRel (FlowType (C KBot) (C l))
+--instance                                 FlowRel (FlowType (I KTop) l)
+--instance                                 FlowRel (FlowType l (C KTop))
+
+{- Exported flow relation -} 
+class FlowRel (FlowType l l') => FlowsTo (l :: KPrin) (l' :: KPrin) where
+instance FlowRel (FlowType l l') => FlowsTo l l'
 
 assertEq :: (PrinEq l l', PrinEq l' l) => SPrin l -> SPrin l' -> ()
 assertEq l l' = ()
@@ -383,7 +370,7 @@ eqTBotInteg = assertEq (pbot^←) pbot
 --eqTConjSubst :: (PrinEq p p', PrinEq q q') => 
 --                  SPrin p -> SPrin p' -> SPrin q -> SPrin q' -> ()
 --eqTConjSubst p p' q q' = assertEqL (p ∧ q) (p' ∧ q')
-
+--
 --eqTDisjSubst :: (PrinEq p p', PrinEq q q') => 
 --                  SPrin p -> SPrin p' -> SPrin q -> SPrin q' -> ()
 --eqTDisjSubst p p' q q' = assertEqL (p ∨ q) (p' ∨ q')
@@ -393,7 +380,7 @@ eqTBotInteg = assertEq (pbot^←) pbot
 --
 --eqTIntegSubst :: PrinEq p p' => SPrin p -> SPrin p' -> ()
 --eqTIntegSubst p p' = assertEqL (p^←) (p'^←)
-                               
+                             
 
 assertCBT0 :: ActsFor (I (C KBot)) (I (C KTop))  => ()
 assertCBT0 = ()
@@ -413,15 +400,21 @@ testITB = assertITB
 
 assertActsFor :: ActsFor p q => SPrin p -> SPrin q -> ()
 assertActsFor p q = ()
-
+--
 assertFlowsTo :: FlowsTo l l' => SPrin l -> SPrin l' -> ()
 assertFlowsTo l l' = ()
 
---neg_flTconfName ::  SPrin p -> ()
---neg_flTconfName p = checkFlowsTo ((p^→) ∧ (bot^←)) p
+--neg_flTConf ::  SPrin p -> ()
+--neg_flTConf p = assertFlowsTo ((p^→) ∧ (SBot^←)) p
 
-flTConjL :: SPrin p ->  SPrin q -> ()
-flTConjL p q = assertFlowsTo (p^→) ((p ∧ q)^→)  
+--neg_flTConf2 ::  SPrin p -> SPrin q -> ()
+--neg_flTConf2 p q = assertActsFor SBot (SConf q) --(p^→) 
+
+--neg_flTInteg ::  SPrin p -> SPrin q -> ()
+--neg_flTInteg p q = assertActsFor (p^→) ((p^→) ∧ (q^←))
+
+--flTConjL :: SPrin p ->  SPrin q -> ()
+--flTConjL p q = assertFlowsTo (p^→) ((p ∧ q)^→)  
 
 {- A Flow-indexed monad for pure computations -}
 class FIxMonad (m :: KPrin -> * -> *) where
@@ -466,20 +459,20 @@ instance Monad (Lbl s) where
   return x = MkLbl x
   MkLbl a >>= k = k a
 
-testC :: Lbl (C KBot) a -> Lbl (C KTop) a
-testC x = x *>>= (\y -> label y)
-
-testI :: Lbl (I KTop) a -> Lbl (I KBot) a
-testI x = x *>>= (\y -> label y)
-
-testCI :: Lbl ((C KBot) :∧: (I KTop)) a -> Lbl ((C KTop) :∧: (I KBot)) a
-testCI x = x *>>= (\y -> label y)
-
-testToBasis :: Lbl p a -> Lbl ((C p) :∧: (I p)) a                                                                
-testToBasis x = x *>>= (\y -> label y)
- 
-testFromBasis :: Lbl ((C p) :∧: (I p)) a -> Lbl p a
-testFromBasis x = x *>>= (\y -> label y)
+--testC :: Lbl (C KBot) a -> Lbl (C KTop) a
+--testC x = x *>>= (\y -> label y)
+--
+--testI :: Lbl (I KTop) a -> Lbl (I KBot) a
+--testI x = x *>>= (\y -> label y)
+--
+--testCI :: Lbl ((C KBot) :∧: (I KTop)) a -> Lbl ((C KTop) :∧: (I KBot)) a
+--testCI x = x *>>= (\y -> label y)
+--
+--testToBasis :: Lbl p a -> Lbl ((C p) :∧: (I p)) a                                                                
+--testToBasis x = x *>>= (\y -> label y)
+-- 
+--testFromBasis :: Lbl ((C p) :∧: (I p)) a -> Lbl p a
+--testFromBasis x = x *>>= (\y -> label y)
 
 --TODO: implement fail
 
@@ -501,6 +494,17 @@ protectx pc l x = UnsafeIFC $ do return (MkLbl x)
 relabelIFC  :: (FlowsTo pc pc', FlowsTo l l')  => IFC pc l a -> IFC pc' l' a 
 relabelIFC x = UnsafeIFC $ do a <- runIFC x;
                               --return . relabel a  -- this didn't work. why?
+                              return $ MkLbl (unsafeRunLbl a)
+
+relabelIFCx :: FlowsTo l l' => SPrin l -> SPrin l' -> IFC pc l a -> IFC pc l' a 
+relabelIFCx l l' x = UnsafeIFC $ do
+                              a <- runIFC x;
+                              --return . relabel a  -- this didn't work. why?
+                              return $ MkLbl (unsafeRunLbl a)
+
+relabelIFCpc  :: FlowsTo pc pc' => SPrin pc -> SPrin pc' -> IFC pc l a -> IFC pc' l a 
+relabelIFCpc pc pc' x = UnsafeIFC $ do
+                              a <- runIFC x;
                               return $ MkLbl (unsafeRunLbl a)
 
 {- Use a labeled value to perform effectful computation.
@@ -553,12 +557,20 @@ using d m = reify d $ \(_ :: Proxy s) ->
   in m \\ replaceProof
 
 instance ReifiableConstraint AFRel where
-  data Def AFRel (AFType p q) = DAFType { sup_ :: Bound p, inf_ :: Bound q}
+  data Def AFRel (AFType p q) = DAFType { sup_ :: SPrin p, inf_ :: SPrin q}
   reifiedIns = Sub Dict
 
 instance Reifies s (Def AFRel a) => AFRel (Lift AFRel a s) where
 
 type DAFType p q = Def AFRel (AFType p q)
+
+instance ReifiableConstraint FlowRel where
+  data Def FlowRel (FlowType l l') = DFlowType { finf_ :: SPrin l, fsup_ :: SPrin l'}
+  reifiedIns = Sub Dict
+
+instance Reifies s (Def FlowRel a) => FlowRel (Lift FlowRel a s) where
+
+type DFlowType p q = Def FlowRel (FlowType p q)
 
 assertAFRel :: AFRel (AFType p q) => SPrin p -> SPrin q -> () 
 assertAFRel p q = ()
@@ -567,14 +579,32 @@ afTest :: ()
 afTest = withPrin (Name "Alice") (\alice ->
            withPrin Top (\ptop ->
              withPrin Bot (\pbot ->
-               using (DAFType alice ptop) $
-                 using (DAFType pbot ptop) $
+               using (DAFType (st alice) (st ptop)) $
+                 using (DAFType (st pbot) (st ptop)) $
                    assertAFRel ((st alice) ∨ (st pbot)) (st ptop))))
 
+assertFlowRel :: FlowRel (FlowType p q) => SPrin p -> SPrin q -> () 
+assertFlowRel p q = ()
+
+flowTest :: ()
+flowTest = withPrin (Name "Alice") (\alice ->
+           withPrin Top (\ptop ->
+             withPrin Bot (\pbot ->
+               using (DFlowType (st alice) (st ptop)) $
+                 using (DFlowType (st pbot) (st ptop)) $
+                   assertFlowRel ((st pbot)) (st ptop))))
+
 -- TODO Voice + extra premises
-assume :: (ActsFor pc (I q), ActsFor l (I q), FlowsTo l l') =>
+assume :: (ActsFor pc (I q), ActsFor l (I q), ActsFor (I l) (I l'), ActsFor (C l) (C l')) => 
             IFC pc l (DAFType p q) -> (AFRel (AFType p q) => IFC pc' l' b) -> IFC pc' l' b 
 assume lpf m = UnsafeIFC $ do
+                  pf <- runIFC lpf  
+                  runIFC $ using (unsafeRunLbl pf) m 
+
+-- TODO Voice + extra premises
+fassume :: (FlowsTo (I to) pc, FlowsTo (I to) l, FlowsTo l l') => 
+            IFC pc l (DFlowType from to) -> (FlowRel (FlowType from to) => IFC pc l' b) -> IFC pc l' b 
+fassume lpf m = UnsafeIFC $ do
                   pf <- runIFC lpf  
                   runIFC $ using (unsafeRunLbl pf) m 
 
@@ -584,62 +614,30 @@ withPrin p f = case promote p of
                  Ex p' -> f (p <=> p') 
 
          
-flaPutStrLn :: (FlowsTo l lblout, FlowsTo pc lblout) => IFC pc l String -> IFC lblout l' ()
-flaPutStrLn str = UnsafeIFC $ do
-                               s <- runIFC str 
-                               u <- putStrLn $ unsafeRunLbl s 
-                               return (MkLbl u)
-
-{- Dynamically check whether file has label fileLbl -}
-checkFileLbl :: SPrin fileLbl -> FilePath -> Bool
--- TODO: implement
-checkFileLbl lbl fp = True
-
-flaReadFile :: SPrin fileLbl -> FilePath -> IFC pc fileLbl (Either String S.ByteString)
-flaReadFile lbl fp = UnsafeIFC $ if checkFileLbl lbl fp
-                                  then do 
-                                    u <- S.readFile fp
-                                    return (MkLbl (Right u))
-                                  else 
-                                    return (MkLbl (Left "Access check failed"))
-
-unsafeUnlabelApp :: IFCApplication pc l -> Application
-unsafeUnlabelApp app req responseFunc = do 
-            resp <- runIFC (app req (UnsafeIFC . (\resp -> do
-                                                             r <- responseFunc resp
-                                                             return (MkLbl r))))
-            return $ unsafeRunLbl $ resp
-  
-flaRun :: SPrin pc -> SPrin l -> Port -> IFCApplication pc l -> IFC pc l () 
-flaRun pc l port app = UnsafeIFC $ do
-                                     run port (unsafeUnlabelApp app);
-                                     return (MkLbl ())
-
-type Alice = (KName "Alice")           
-type Bob   = (KName "Bob")           
-type Carol = (KName "Carol")           
-type Terminal = (KName "Terminal")           
-alice :: SPrin Alice
-alice = SName (Proxy :: Proxy "Alice")
-tName :: SPrin Terminal
-tName = SName (Proxy :: Proxy "Terminal")
-
+--type Alice = (KName "Alice")           
+--type Bob   = (KName "Bob")           
+--type Carol = (KName "Carol")           
+--type Terminal = (KName "Terminal")           
+--alice :: SPrin Alice
+--alice = SName (Proxy :: Proxy "Alice")
+--tName :: SPrin Terminal
+--tName = SName (Proxy :: Proxy "Terminal")
+--
 --TODO: check that (C (Alice :∨: Terminal)) flows to (C Terminal)
-msgToAlice :: IFC (C Alice) (C Alice) String -> IFC (C Alice) l () 
-msgToAlice msg = --let m = (relabelx (tName^→) (tName^→) msg) in
-                     flaPutStrLn $ do
-                                    s <- msg;
-                                    return (s ++ " Alice")
-testImplicit :: IFC (I KTop) (C Alice) Bool -> IFC (C KTop) l ()
-testImplicit b = flaPutStrLn $ do 
-                                tf <- b
-                                return (if tf then "True" else "False")
+--msgToAlice :: IFC (C Alice) (C Alice) String -> IFC (C Alice) l () 
+--msgToAlice msg = --let m = (relabelx (tName^→) (tName^→) msg) in
+--                     flaPutStrLn $ do
+--                                    s <- msg;
+--                                    return (s ++ " Alice")
+--testImplicit :: IFC (I KTop) (C Alice) Bool -> IFC (C KTop) l ()
+--testImplicit b = flaPutStrLn $ do 
+--                                tf <- b
+--                                return (if tf then "True" else "False")
 
-sayHi :: IO ()
-sayHi = putStrLn "Hello"
-main  :: IO ()
-main  = sayHi --putStrLn uIfTest2
-
+--sayHi :: IO ()
+--sayHi = putStrLn "Hello"
+--main  :: IO ()
+--main  = sayHi --putStrLn uIfTest2
 
 --[Scratch]
 --withDel :: IFC pc l Prin -> IFC pc l Prin -> (forall p q. IFC pc l (DAFType p q) -> IFC pc' l' a) -> IFC pc' l' a 
