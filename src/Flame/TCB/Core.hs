@@ -287,6 +287,7 @@ instance ActsFor (C ch) (C cl) => FlowRel ((C cl) :∧: (I il)) ((C ch) :∧: (I
 instance ActsFor (I il) (I ih) =>                          FlowRel (I il) ((C ch) :∧: (I ih))
 --instance ActsFor (C ch) (I cl) =>                          FlowRel ((C cl) :∧: (I il)) (C ch)
 instance                                                   FlowRel p p
+instance                                                   FlowRel (I p) (I p)
 -- some redundant cases to help out the inference algorithm.
 --instance                                 FlowRel (FlowType (I l) (I KBot))
 --instance                                 FlowRel (FlowType (C KBot) (C l))
@@ -512,8 +513,8 @@ relabelIFCx l l' x = UnsafeIFC $ do
                               --return . relabel a  -- this didn't work. why?
                               return $ MkLbl (unsafeRunLbl a)
 
-relabelIFCpc  :: FlowsTo pc pc' => SPrin pc -> SPrin pc' -> IFC pc l a -> IFC pc' l a 
-relabelIFCpc pc pc' x = UnsafeIFC $ do
+relabelIFCpc  :: (FlowsTo l l', FlowsTo pc pc') => SPrin pc' -> SPrin l' -> IFC pc l a -> IFC pc' l' a 
+relabelIFCpc pc' l' x = UnsafeIFC $ do
                               a <- runIFC x;
                               return $ MkLbl (unsafeRunLbl a)
 
@@ -567,10 +568,17 @@ disjAssoc_pc  = relabelIFC
 
 {- Use a labeled value to perform effectful computation.
    Once side-effects are run, continue at arbitrary pc. -}
-use :: (FlowsTo l pc', FlowsTo l l')
-          => Lbl l a -> (a -> IFC pc' l' b) -> IFC pc l' b 
+--use :: (FlowsTo l pc', FlowsTo l l')
+--          => Lbl l a -> (a -> IFC pc' l' b) -> IFC pc l' b 
+--use m f = UnsafeIFC $ do 
+--                        result <- runIFC (f $ unsafeRunLbl m)
+--                        return result
+
+use :: (FlowsTo pc pc', FlowsTo l pc', FlowsTo l l')
+          => IFC pc l a -> (a -> IFC pc' l' b) -> IFC pc l' b 
 use m f = UnsafeIFC $ do 
-                        result <- runIFC (f $ unsafeRunLbl m)
+                        v <- runIFC m
+                        result <- runIFC (f $ unsafeRunLbl v)
                         return result
 
 instance Functor (IFC pc l) where
@@ -620,8 +628,11 @@ instance ReifiableConstraint AFRel where
 {- Allow proofs to derive from dynamic relationships -}
 instance Reifies s (Def AFRel a) => AFRel (Lift AFRel a s) where
  
-
 type DAFType p q = Def AFRel (AFType p q)
+-- TODO Voice + extra premises
+assume :: --ActsFor pc (I q) => 
+            DAFType p q -> (AFRel (AFType p q) => IFC pc l b) -> IFC pc l b 
+assume pf m = using pf m 
 
 assertAFRel :: AFRel (AFType p q) => SPrin p -> SPrin q -> () 
 assertAFRel p q = ()
@@ -656,13 +667,6 @@ afTest4 p q = let from = (p^→) in
 --               using (DFlowType (st alice) (st ptop)) $
 --                 using (DFlowType (st pbot) (st ptop)) $
 --                   assertFlowRel ((st pbot)) (st ptop))))
-
--- TODO Voice + extra premises
-assume :: --(ActsFor pc (I q), ActsFor l (I q), FlowsTo l l') => 
-            IFC pc l (DAFType p q) -> (AFRel (AFType p q) => IFC pc' l' b) -> IFC pc' l' b 
-assume lpf m = UnsafeIFC $ do
-                  pf <- runIFC lpf  
-                  runIFC $ using (unsafeRunLbl pf) m 
 
 {- Bind runtime principal to type -}
 withPrin :: Prin -> (forall p . Bound p -> a) -> a
