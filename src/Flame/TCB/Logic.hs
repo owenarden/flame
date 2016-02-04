@@ -4,7 +4,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
+--{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
@@ -236,7 +236,7 @@ data AFProof =
 class AFRel del (b::Bool) | del -> b where
 {- Trans -}
 -- Needs AmbiguousTypes
-instance {-# OVERLAPPABLE #-} (AFRel (AFType p q) True, AFRel (AFType q r) True) => AFRel (AFType p r) True where
+--instance {-# OVERLAPPABLE #-} (AFRel (AFType p q) True, AFRel (AFType q r) True) => AFRel (AFType p r) True where
 {- TODO: Substitutions -}
 {- ConjLR -}
 instance {-# OVERLAPS #-} (AFRel (AFType p1 q1) b1, AFRel (AFType p1 q2) b2,
@@ -640,6 +640,10 @@ relabelIFCpc pc' l' x = UnsafeIFC $ do
                               a <- runIFC x;
                               return $ MkLbl (unsafeRunLbl a)
 
+-- Something like this?
+--withTrans :: (ActsFor p q, ActsFor q r) => SPrin p -> SPrin q -> SPrin r -> (ActsFor p r => a) -> a
+--withTrans p q r a = using (DAFType p r) a  
+
 {- Explicit relabeling rules -}
 unsafeRelabel :: IFC pc l a -> IFC pc' l' a 
 unsafeRelabel x = UnsafeIFC $ do
@@ -724,6 +728,7 @@ instance Monad (IFC pc l) where
     (UnsafeIFC m) >>= k = UnsafeIFC $ do
                                         la <- m
                                         runIFC . k $ unsafeRunLbl la
+--TODO: fix using stuff
 {-
 {- Machinery for dynamically extending the acts-for relation 
    From: https://www.schoolofhaskell.com/user/thoughtpolice/using-reflection -}
