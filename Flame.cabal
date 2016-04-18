@@ -2,11 +2,11 @@
 --  see http://haskell.org/cabal/users-guide/
 
 name:                flame
-version:             0.1.0.0
+version:             0.1.0.1
 -- synopsis:            
 -- description:         
 -- license:             
-license-file:        LICENSE
+--license-file:        LICENSE
 author:              Owen Arden
 maintainer:          owenarden@gmail.com
 -- copyright:           
@@ -16,9 +16,21 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Flame, Flame.IO, Flame.TCB.Core, Flame.TCB.Simple
+  exposed-modules:     Flame.Solver, Flame.Principals, Flame.Normalize, Flame.Assert, GHC.Extra.Instances
   -- other-modules:       
-  other-extensions:    GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, RankNTypes, FlexibleInstances, FlexibleContexts, TypeFamilies, TypeOperators, PostfixOperators, OverloadedStrings, AllowAmbiguousTypes, UndecidableInstances, IncoherentInstances, Rank2Types, ConstraintKinds, ScopedTypeVariables, FunctionalDependencies, DataKinds
-  build-depends:       base >=4.8 && <4.9, constraints >=0.6 && <0.7, reflection >=2.1 && <2.2, containers >=0.5 && <0.6, transformers, wai >=3.0 && <3.1, warp >=3.1 && <3.2, bytestring >=0.10 && <0.11, simple >=0.11 && <0.12
+  other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
+                    RankNTypes, FlexibleInstances, FlexibleContexts, 
+                    TypeFamilies, TypeOperators, PostfixOperators, 
+                    OverloadedStrings, AllowAmbiguousTypes, 
+                    UndecidableInstances, IncoherentInstances, Rank2Types, 
+                    ConstraintKinds, ScopedTypeVariables, 
+                    FunctionalDependencies, DataKinds
+  build-depends:    base >=4.8 && <4.9, 
+                    constraints >=0.6 && <0.7, 
+                    reflection >=2.1 && <2.2, 
+                    containers >=0.5 && <0.6, 
+                    ghc >= 7.10, 
+                    ghc-tcplugins-extra,
+                    QuickCheck
   hs-source-dirs:      src
   default-language:    Haskell2010
