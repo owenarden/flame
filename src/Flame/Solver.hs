@@ -77,6 +77,7 @@ data FlameRec = FlameRec {
                        kconf        :: TyCon, 
                        kinteg       :: TyCon,
                        actsfor      :: TyCon,
+                       voice        :: TyCon,
                        confClosure  :: DelClosure,
                        integClosure :: DelClosure
                      }
@@ -91,7 +92,8 @@ lookupFlameRec = do
     kdisjDataNm  <- lookupName md (mkDataOcc "KDisj")
     kconfDataNm  <- lookupName md (mkDataOcc "KConf")
     kintegDataNm <- lookupName md (mkDataOcc "KInteg")
-    actsforNm  <- lookupName md (mkTcOcc "≽")
+    voiceNm      <- lookupName md (mkTcOcc "Voice")
+    actsforNm    <- lookupName md (mkTcOcc "≽")
     ktopTc   <- promoteDataCon <$> tcLookupDataCon ktopDataNm
     kbotTc   <- promoteDataCon <$> tcLookupDataCon kbotDataNm
     knameTc  <- promoteDataCon <$> tcLookupDataCon knameDataNm
@@ -100,6 +102,7 @@ lookupFlameRec = do
     kconfTc  <- promoteDataCon <$> tcLookupDataCon kconfDataNm
     kintegTc <- promoteDataCon <$> tcLookupDataCon kintegDataNm
     actsforTc  <-  tcLookupTyCon actsforNm
+    voiceTc    <-  tcLookupTyCon voiceNm
     return FlameRec{
        ktop       = ktopTc
     ,  kbot       = kbotTc
@@ -109,6 +112,7 @@ lookupFlameRec = do
     ,  kconf      = kconfTc
     ,  kinteg     = kintegTc
     ,  actsfor    = actsforTc
+    ,  voice      = voiceTc
     ,  confClosure = []
     ,  integClosure = []
     }
@@ -123,51 +127,54 @@ type CoreMNorm  = MNorm TyVar Type
 type CoreBase   = Base TyVar Type
 
 -- | Convert a type of /kind/ 'Flame.Principals.KPrin' to a 'JNorm' term
---
 -- flrec contains the KPrin type constructors
--- cproj indicates whether we are normalizing the conf component
+-- isConf indicates whether we are normalizing the conf component
 jnormPrin :: FlameRec -> Bool -> Type -> CoreJNorm
-jnormPrin flrec cproj ty | Just ty1 <- coreView ty = jnormPrin' ty1
-  where jnormPrin' = jnormPrin flrec cproj
-jnormPrin flrec cproj (TyVarTy v) = J [M [V v]]
-jnormPrin flrec cproj (TyConApp tc [])
+jnormPrin flrec isConf ty | Just ty1 <- coreView ty = jnormPrin' ty1
+  where jnormPrin' = jnormPrin flrec isConf
+jnormPrin flrec isConf (TyVarTy v) = J [M [V v]]
+jnormPrin flrec isConf (TyConApp tc [])
   | tc == (ktop flrec) = J [M [T]]
   | tc == (kbot flrec) = J [M [B]]
-jnormPrin flrec cproj (TyConApp tc [x])
+jnormPrin flrec isConf (TyConApp tc [x])
   | tc == (kname flrec) = J [M [P x]]
   | tc == (kconf flrec) =
-    if cproj then jnormPrin' x else J [M [B]]
+    if isConf then jnormPrin' x else J [M [B]]
   | tc == (kinteg flrec) = 
-    if cproj then J [M [B]] else jnormPrin' x
-  where jnormPrin' = jnormPrin flrec cproj
-jnormPrin flrec cproj (TyConApp tc [x,y])
+    if isConf then J [M [B]] else jnormPrin' x
+  | tc == (voice flrec) =
+    if isConf then J [M [B]] else integ $ voiceOf (normPrin flrec x)
+  where jnormPrin' = jnormPrin flrec isConf
+jnormPrin flrec isConf (TyConApp tc [x,y])
   | tc == (kconj flrec) = mergeJNormJoin (jnormPrin' x) (jnormPrin' y)
   | tc == (kdisj flrec) = mergeJNormMeet (jnormPrin' x) (jnormPrin' y)
-  where jnormPrin' = jnormPrin flrec cproj
-jnormPrin flrec cproj t = J [M [P t]]
+  where jnormPrin' = jnormPrin flrec isConf
 
 -- | Convert a type of /kind/ 'Flame.Principals.KPrin' to a 'JNorm' term
-normPrin :: FlameRec -> Type -> Maybe CoreNorm
+normPrin :: FlameRec -> Type -> CoreNorm
 normPrin flrec ty
   | Just ty1 <- coreView ty =
-      Just (N (jnormPrin flrec True ty1) (jnormPrin flrec False ty1))
-normPrin flrec (TyVarTy v) = Just (N (J [M [V v]]) (J [M [V v]]))
+      N (jnormPrin flrec True ty1) (jnormPrin flrec False ty1)
+normPrin flrec (TyVarTy v) = N (J [M [V v]]) (J [M [V v]])
 normPrin flrec (TyConApp tc [])
-  | tc == (ktop flrec) = Just (N (J [M [T]]) (J [M [T]]))
-  | tc == (kbot flrec) = Just (N (J [M [B]]) (J [M [B]]))
+  | tc == (ktop flrec) = N (J [M [T]]) (J [M [T]])
+  | tc == (kbot flrec) = N (J [M [B]]) (J [M [B]])
 normPrin flrec (TyConApp tc [x])
-  | tc == (kname flrec) =  Just (N (J [M [P x]]) (J [M [P x]]))
-  | tc == (kconf flrec) =  Just (N (jnormPrin flrec True x) (J [M [B]]))
-  | tc == (kinteg flrec) = Just (N (J [M [B]]) (jnormPrin flrec False x))
+  | tc == (kname flrec) =  N (J [M [P x]]) (J [M [P x]])
+  | tc == (kconf flrec) =  N (jnormPrin flrec True x) (J [M [B]])
+  | tc == (kinteg flrec) = N (J [M [B]]) (jnormPrin flrec False x)
+  | tc == (voice flrec) =  voiceOf (normPrin flrec x)
 normPrin flrec (TyConApp tc [x,y])
-  | tc == (kconj flrec) = do x' <- normPrin flrec x
-                             y' <- normPrin flrec y
-                             Just (mergeNormJoin x' y')
-  | tc == (kdisj flrec) = do x' <- normPrin flrec x;
-                             y' <- normPrin flrec y;
-                             Just (mergeNormMeet x' y')
-normPrin flrec _ = Nothing
+  | tc == (kconj flrec) = let x' = normPrin flrec x in
+                          let y' = normPrin flrec y in
+                             mergeNormJoin x' y'
+  | tc == (kdisj flrec) = let x' = normPrin flrec x in
+                          let y' = normPrin flrec y in
+                             mergeNormMeet x' y'
 
+voiceOf :: CoreNorm -> CoreNorm
+voiceOf (N conf integ) = N (J [M [B]]) (mergeJNormJoin conf integ)
+  
 -- | Convert a 'SOP' term back to a type of /kind/ 'GHC.TypeLits.Nat'
 reifyNorm :: FlameRec -> CoreNorm -> Type
 reifyNorm flrec (N (J cms) (J ims)) =
@@ -274,8 +281,8 @@ toGiven flrec ct =
                    case af of
                      TyConApp tc [p,q]
                        | tc == (actsfor flrec) -> 
-                         do sup <- normPrin flrec p 
-                            inf <- normPrin flrec q
+                         let sup = normPrin flrec p in
+                         let inf = normPrin flrec q in
                             Just (sup, inf)
                      _ -> Nothing
     _ -> Nothing
@@ -287,8 +294,8 @@ toActsFor flrec ct =
                    case af of
                      TyConApp tc [p,q]
                        | tc == (actsfor flrec) -> 
-                         do sup <- normPrin flrec p 
-                            inf <- normPrin flrec q
+                         let sup = normPrin flrec p in
+                         let inf = normPrin flrec q in
                             (pprTrace "wanted" (ppr (sup, inf)) $
                              (Just (ct, (sup, inf))))
                      _ -> Nothing
