@@ -10,10 +10,11 @@ where
 
 -- External
 import Data.Function (on)
-import Data.List     ((\\), intersect, mapAccumL, find)
+import Data.List     
 import Control.Arrow       ((***))
 import Data.List           (partition)
 import Data.Maybe          (mapMaybe)
+import Data.Graph 
 import GHC.TcPluginM.Extra (evByFiat, lookupModule, lookupName, newGiven)
 import Data.IORef          (IORef, newIORef,readIORef, modifyIORef)
 
@@ -66,16 +67,18 @@ flamePlugin =
            , tcPluginStop  = \_ -> return ()
            }
 
+type DelClosure = [(CoreBase, [CoreBase])]
 data FlameRec = FlameRec {
-                       ktop       :: TyCon, 
-                       kbot       :: TyCon, 
-                       kname      :: TyCon, 
-                       kconj      :: TyCon, 
-                       kdisj      :: TyCon, 
-                       kconf      :: TyCon, 
-                       kinteg     :: TyCon,
-                       actsfor    :: TyCon,
-                       discharged :: IORef [Ct]
+                       ktop         :: TyCon, 
+                       kbot         :: TyCon, 
+                       kname        :: TyCon, 
+                       kconj        :: TyCon, 
+                       kdisj        :: TyCon, 
+                       kconf        :: TyCon, 
+                       kinteg       :: TyCon,
+                       actsfor      :: TyCon,
+                       confClosure  :: DelClosure,
+                       integClosure :: DelClosure
                      }
 
 lookupFlameRec :: TcPluginM FlameRec
@@ -97,7 +100,6 @@ lookupFlameRec = do
     kconfTc  <- promoteDataCon <$> tcLookupDataCon kconfDataNm
     kintegTc <- promoteDataCon <$> tcLookupDataCon kintegDataNm
     actsforTc  <-  tcLookupTyCon actsforNm
-    dischargedTc <- tcPluginIO $ newIORef []
     return FlameRec{
        ktop       = ktopTc
     ,  kbot       = kbotTc
@@ -107,7 +109,8 @@ lookupFlameRec = do
     ,  kconf      = kconfTc
     ,  kinteg     = kintegTc
     ,  actsfor    = actsforTc
-    ,  discharged = dischargedTc
+    ,  confClosure = []
+    ,  integClosure = []
     }
   where
     flameModule  = mkModuleName "Flame.Principals"
@@ -200,41 +203,87 @@ decideActsFor flrec given derived wanteds = return $! case (pprTrace "failed" (p
     [] -> TcPluginOk (mapMaybe (\c -> (,c) <$> evMagic flrec c) solved) []
     f  -> TcPluginContradiction f
   where
-    afGivens :: [(Ct,(CoreNorm,CoreNorm))]
+
+    afGivens :: [(CoreNorm,CoreNorm)]
     afGivens = mapMaybe (toGiven flrec) given
-    --afDerived :: [(Ct,(CoreNorm,CoreNorm))]
-    --afDerived = pprTrace "derived?" (ppr derived) $ mapMaybe (toActsFor flrec) derived
+
+    (confExp,integExp) = expandGivens afGivens
+
+    confClosure :: [(CoreBase, [CoreBase])]
+    confClosure = givenClosure confExp 
+
+    integClosure :: [(CoreBase, [CoreBase])]
+    integClosure = givenClosure integExp 
+
     afWanteds :: [(Ct,(CoreNorm,CoreNorm))]
     afWanteds = mapMaybe (toActsFor flrec) wanteds
-    
+
+    flrec' = flrec{confClosure = confClosure, integClosure = integClosure}
+
     solved, failed :: [Ct]
     (solved,failed) = (map fst *** map fst)
                       $ partition (\a ->
-                                    case actsFor flrec afGivens (snd a) of
+                                    case actsFor flrec' (snd a) of
                                     Just pf -> (pprTrace "proof" (ppr pf) True)
                                     _       -> False
                                   )
-                      (pprTrace "wanted" (ppr wanteds) afWanteds)
+                        afWanteds
 
-toGiven :: FlameRec -> Ct -> Maybe (Ct, (CoreNorm, CoreNorm))
+expandGivens :: [(CoreNorm,CoreNorm)]
+             -> ([(CoreBase,CoreBase)], [(CoreBase,CoreBase)])
+expandGivens givens = unzip $ map
+                        (\given ->
+                          case given of
+                            -- TODO: This fails on givens that aren't already in base form
+                            (N (J [M [supC]]) (J [M [supI]]), 
+                             N (J [M [infC]]) (J [M [infI]])) -> 
+                              ((supC, infC), (supI, infI)))
+                        givens
+  
+  -- TODO: expand given constraints to base form
+
+givenClosure :: [(CoreBase,CoreBase)] -> [(CoreBase, [CoreBase])]
+givenClosure givens = 
+    map (\q -> (q, case prinToVtx q of
+                   Just vtx -> map vtxToPrin $ reachable graph vtx))
+        principals
+  where
+    principals :: [CoreBase]
+    principals = [T, B] ++ (map head . group . sort $ (map inferior givens ++ map superior givens))
+
+    edges :: [(CoreBase, CoreBase, [CoreBase])]
+    edges =  map (\inf ->
+                   (inf, inf, [superior af | af  <- givens, inferior af == inf]))
+                 principals
+    (graph, vtxToEdges, prinToVtx) = graphFromEdges edges
+
+    vtxToPrin :: Vertex -> CoreBase
+    vtxToPrin v = let (x, _, _) = vtxToEdges v in x
+
+    inferior :: (CoreBase,CoreBase) -> CoreBase
+    inferior = snd
+
+    superior :: (CoreBase,CoreBase) -> CoreBase
+    superior = fst
+    
+
+toGiven :: FlameRec -> Ct -> Maybe (CoreNorm, CoreNorm)
 toGiven flrec ct =
   case classifyPredType (ctPred ct) of
-    EqPred NomEq af fsk -> pprTrace "eq :" (ppr (af, fsk)) $
+    EqPred NomEq af fsk -> 
                    case af of
                      TyConApp tc [p,q]
                        | tc == (actsfor flrec) -> 
                          do sup <- normPrin flrec p 
                             inf <- normPrin flrec q
-                            (pprTrace "given" (ppr (sup, inf)) $
-                             (Just (ct, (sup, inf))))
+                            Just (sup, inf)
                      _ -> Nothing
     _ -> Nothing
 
 toActsFor :: FlameRec -> Ct -> Maybe (Ct,(CoreNorm,CoreNorm))
 toActsFor flrec ct =
   case classifyPredType (ctPred ct) of
-    EqPred r t1 t2 -> pprTrace "eq :" (ppr (r, t1)) $ Nothing
-    IrredPred af -> pprTrace "actsfor:" (ppr af) $
+    IrredPred af -> 
                    case af of
                      TyConApp tc [p,q]
                        | tc == (actsfor flrec) -> 
@@ -245,38 +294,33 @@ toActsFor flrec ct =
                      _ -> Nothing
     _ -> Nothing
 
-type Delegation = (Ct, (CoreNorm, CoreNorm))
-
 data ActsForProof =                    
       AFTop
     | AFBot
     | AFRefl 
-    | AFDel Delegation
+    | AFDel (CoreBase, CoreBase) -- NB: this implicitly uses transitivity on given dels
     | AFConj [ActsForProof] -- for each RHS q, proof that there is a LHS p s.t. p > q 
     | AFDisj [ActsForProof] -- for each RHS q, proof that there is a LHS p s.t. p > q 
-    | AFTrans ActsForProof ActsForProof
 
 instance Outputable ActsForProof where
     ppr AFTop = text "AFTop"
     ppr AFBot = text "AFBot"
     ppr AFRefl = text "AFRefl"
-    ppr (AFDel (ct, (p, q))) = text "AFDel"
+    ppr (AFDel del) = text "AFDel" <+> ppr del
     ppr (AFConj pfs) = text "AFConj" <+> ppr pfs
     ppr (AFDisj pfs) = text "AFDisj" <+> ppr pfs
-    -- | AFTrans ActsForProof ActsForProof
 
 actsFor :: FlameRec ->
-           [(Ct,(CoreNorm,CoreNorm))] ->  
            (CoreNorm, CoreNorm) ->
            Maybe ActsForProof
-actsFor flrec givens (p,q) 
+actsFor flrec (p,q) 
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q    = Just AFRefl
   | otherwise = 
         do
-          confPf <- confActsFor flrec givens (delConf (p,q)) 
-          integPf <- integActsFor flrec givens (delInteg (p,q))
+          confPf <- confActsFor (conf p, conf q)
+          integPf <- integActsFor (integ p, integ q)
           Just $ AFConj [confPf, integPf]
   where
     top :: CoreNorm
@@ -284,40 +328,19 @@ actsFor flrec givens (p,q)
     bot :: CoreNorm
     bot = N (J [M [B]]) (J [M [B]])
 
-type JProjector = (CoreNorm,CoreNorm) -> (CoreJNorm, CoreJNorm) 
-type MProjector = (CoreNorm,CoreNorm) -> (CoreMNorm, CoreMNorm) 
-type BProjector = (CoreNorm,CoreNorm) -> (CoreBase, CoreBase) 
+    confActsFor :: (CoreJNorm, CoreJNorm) -> Maybe ActsForProof
+    confActsFor = actsForJ (confClosure flrec)
+    integActsFor :: (CoreJNorm, CoreJNorm) -> Maybe ActsForProof
+    integActsFor = actsForJ (integClosure flrec)
 
-delConf :: JProjector
-delConf (p,q) = (conf p, conf q)
-
-delInteg :: JProjector
-delInteg (p,q) = (integ p, integ q)
-
-to_m :: JProjector -> MProjector                                                
-to_m jproj = \d -> case jproj d of
-                       (J [M pbs], J [M qbs]) -> (M pbs, M qbs)
-                                                
-to_b :: MProjector -> BProjector                                                
-to_b mproj = \d -> case mproj d of
-                       (M [pb], M [qb]) -> (pb, qb)
-                                                
-confActsFor = actsForJ delConf
-integActsFor = actsForJ delInteg
-
-actsForJ :: JProjector ->
-            FlameRec ->
-            [(Ct,(CoreNorm,CoreNorm))] ->  
+actsForJ :: DelClosure ->
             (CoreJNorm, CoreJNorm) ->
             Maybe ActsForProof
-actsForJ delProj flrec givens (p,q) 
+actsForJ delClosure (p,q) 
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = 
-    case find ((== (p,q))  . delProj . snd) givens of
-      Just del -> Just $ AFDel del
-      _ -> AFConj <$> conjProofs 
+  | otherwise = AFConj <$> conjProofs 
   where
     top :: CoreJNorm
     top = J [M [T]]
@@ -328,26 +351,21 @@ actsForJ delProj flrec givens (p,q)
     conjProofs :: Maybe [ActsForProof]
     conjProofs = sequence $ map (\qm ->
                                   case map (\pm ->
-                                          actsForM (to_m delProj) flrec givens (pm,qm))
+                                          actsForM delClosure (pm,qm))
                                         pms of
                                     (pf:pfs) -> pf
                                     _ -> Nothing
                                 )
                                 qms
 
-actsForM :: MProjector ->
-            FlameRec ->
-            [(Ct,(CoreNorm,CoreNorm))] ->  
+actsForM :: DelClosure ->
             (CoreMNorm, CoreMNorm) ->
             Maybe ActsForProof
-actsForM delProj flrec givens (p,q) 
+actsForM delClosure (p,q) 
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = 
-    case find ((== (p,q)) . delProj . snd) givens of
-      Just del -> Just $ AFDel del
-      _ -> AFDisj <$> disjProofs
+  | otherwise = AFDisj <$> disjProofs
   where
     top :: CoreMNorm
     top = M [T]
@@ -358,36 +376,38 @@ actsForM delProj flrec givens (p,q)
     disjProofs :: Maybe [ActsForProof]
     disjProofs = sequence $ map (\pb ->
                                   case map (\qb ->
-                                          actsForB (to_b delProj) flrec givens (pb,qb))
+                                          actsForB delClosure (pb,qb))
                                         qbs of
                                     (pf:pfs) -> pf
                                     _ -> Nothing
                                 )
                                 pbs
-
-actsForB :: BProjector ->
-            FlameRec ->
-            [(Ct,(CoreNorm,CoreNorm))] ->  
+-- IDEA for transitivity.  If all given dels are expressed "primitively", then transitivity can be  
+--  exploited as simple reachability via given dels.
+actsForB :: DelClosure ->
             (CoreBase, CoreBase) ->
             Maybe ActsForProof
-actsForB delProj flrec givens (p,q) 
+actsForB delClosure (p,q) 
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q  = Just AFRefl
   | otherwise = 
-    case find ((== (p,q)) . delProj . snd) givens of
-      Just del -> Just $ AFDel del
+    case find (== p) (superiors q) of
+      Just del -> Just $ AFDel (p,q)
       _ -> Nothing
   where
     top :: CoreBase
     top = T
     bot :: CoreBase
-    bot = B 
+    bot = B  
+    superiors :: CoreBase -> [CoreBase]
+    superiors q = case find ((== q) . fst) delClosure of
+                    Just (q, sups) -> sups
 
 evMagic :: FlameRec -> Ct -> Maybe EvTerm
 evMagic flrec ct = 
     case classifyPredType (ctPred ct) of
-      IrredPred af -> pprTrace "proved actsfor:" (ppr af) $
+      IrredPred af -> 
                    case af of
                      TyConApp tc [p,q]
                        | tc == (actsfor flrec) -> 

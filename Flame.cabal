@@ -16,7 +16,8 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Flame.Solver, Flame.Principals, Flame.Normalize, Flame.Assert, GHC.Extra.Instances
+  exposed-modules:  Flame.Solver, Flame.Principals, Flame.Normalize, 
+                    Flame.Assert, Flame.IFC, GHC.Extra.Instances 
   -- other-modules:       
   other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
                     RankNTypes, FlexibleInstances, FlexibleContexts, 
