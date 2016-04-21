@@ -6,12 +6,13 @@
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 import Flame.Principals
+import Flame.IFC
 type Alice = KName "Alice"
 type Bob = KName "Bob"
 
 test1 :: (KTop ≽ KBot) => String
 test1 = "Hello"
-test2 :: ((C KBot) :∧: (I KTop) ⊑ (C KTop) :∧: (I KBot)) => String
+test2 :: ((C KBot) ∧ (I KTop) ⊑ (C KTop) ∧ (I KBot)) => String
 test2 = "World"
 test3 :: (p ⊑ p) => SPrin p -> String
 test3 p = "World"
@@ -28,8 +29,8 @@ assertEq l l' = ()
 eqTSym :: (l === l') => SPrin l -> SPrin l' -> ()
 eqTSym l l' = assertEq l' l
 
---eqTTrans :: (p === q, q === r) => SPrin p -> SPrin q -> SPrin r -> ()
---eqTTrans p q r = assertEq p r
+eqTTrans :: (p === q, q === r) => SPrin p -> SPrin q -> SPrin r -> ()
+eqTTrans p q r = assertEq p r
 
 eqTConjComm :: SPrin p -> SPrin q -> ()
 eqTConjComm p q = assertEq (p ∧ q) (q ∧ p) 
@@ -122,7 +123,7 @@ assertCBT :: (C KBot ⊑ C KTop) => ()
 assertCBT = ()
 testCBT = assertCBT
 
-assertRCV :: (KConj (C p) (I p) ⊑ KConj p (I KBot)) => SPrin p -> ()
+assertRCV :: ((C p) ∧ (I p) ⊑ p ∧ (I KBot)) => SPrin p -> ()
 assertRCV p = ()
 testRCV = assertRCV
 
@@ -154,4 +155,4 @@ testRCV = assertRCV
 --assertFlowsTo l l' = ()
 
 main :: IO ()
-main = using ((SBot /\ SBot) ≽ STop) $ print test5 --(test1 ++ test2 ++ (test3 STop)) 
+main = print test1 --(test1 ++ test2 ++ (test3 STop)) 

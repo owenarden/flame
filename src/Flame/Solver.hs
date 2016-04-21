@@ -76,8 +76,8 @@ data FlameRec = FlameRec {
                        kdisj        :: TyCon, 
                        kconf        :: TyCon, 
                        kinteg       :: TyCon,
+                       kvoice        :: TyCon,
                        actsfor      :: TyCon,
-                       voice        :: TyCon,
                        confClosure  :: DelClosure,
                        integClosure :: DelClosure
                      }
@@ -92,7 +92,7 @@ lookupFlameRec = do
     kdisjDataNm  <- lookupName md (mkDataOcc "KDisj")
     kconfDataNm  <- lookupName md (mkDataOcc "KConf")
     kintegDataNm <- lookupName md (mkDataOcc "KInteg")
-    voiceNm      <- lookupName md (mkTcOcc "Voice")
+    kvoiceDataNm <- lookupName md (mkDataOcc "KVoice")
     actsforNm    <- lookupName md (mkTcOcc "≽")
     ktopTc   <- promoteDataCon <$> tcLookupDataCon ktopDataNm
     kbotTc   <- promoteDataCon <$> tcLookupDataCon kbotDataNm
@@ -101,8 +101,8 @@ lookupFlameRec = do
     kdisjTc  <- promoteDataCon <$> tcLookupDataCon kdisjDataNm
     kconfTc  <- promoteDataCon <$> tcLookupDataCon kconfDataNm
     kintegTc <- promoteDataCon <$> tcLookupDataCon kintegDataNm
+    kvoiceTc <- promoteDataCon <$> tcLookupDataCon kvoiceDataNm
     actsforTc  <-  tcLookupTyCon actsforNm
-    voiceTc    <-  tcLookupTyCon voiceNm
     return FlameRec{
        ktop       = ktopTc
     ,  kbot       = kbotTc
@@ -111,8 +111,8 @@ lookupFlameRec = do
     ,  kdisj      = kdisjTc
     ,  kconf      = kconfTc
     ,  kinteg     = kintegTc
+    ,  kvoice      = kvoiceTc
     ,  actsfor    = actsforTc
-    ,  voice      = voiceTc
     ,  confClosure = []
     ,  integClosure = []
     }
@@ -142,7 +142,7 @@ jnormPrin flrec isConf (TyConApp tc [x])
     if isConf then jnormPrin' x else J [M [B]]
   | tc == (kinteg flrec) = 
     if isConf then J [M [B]] else jnormPrin' x
-  | tc == (voice flrec) =
+  | tc == (kvoice flrec) =
     if isConf then J [M [B]] else integ $ voiceOf (normPrin flrec x)
   where jnormPrin' = jnormPrin flrec isConf
 jnormPrin flrec isConf (TyConApp tc [x,y])
@@ -163,7 +163,7 @@ normPrin flrec (TyConApp tc [x])
   | tc == (kname flrec) =  N (J [M [P x]]) (J [M [P x]])
   | tc == (kconf flrec) =  N (jnormPrin flrec True x) (J [M [B]])
   | tc == (kinteg flrec) = N (J [M [B]]) (jnormPrin flrec False x)
-  | tc == (voice flrec) =  voiceOf (normPrin flrec x)
+  | tc == (kvoice flrec) =  voiceOf (normPrin flrec x)
 normPrin flrec (TyConApp tc [x,y])
   | tc == (kconj flrec) = let x' = normPrin flrec x in
                           let y' = normPrin flrec y in
@@ -173,7 +173,13 @@ normPrin flrec (TyConApp tc [x,y])
                              mergeNormMeet x' y'
 
 voiceOf :: CoreNorm -> CoreNorm
-voiceOf (N conf integ) = N (J [M [B]]) (mergeJNormJoin conf integ)
+voiceOf (N conf integ) = N (J [M [B]]) (mergeJNormJoin (wrapVars conf) integ)
+  where
+    wrapVars (J ms) = J (map wrapVars' ms)
+    wrapVars' (M bs) = M (map wrapVars'' bs)
+    wrapVars'' (V v) = ConfVoice v 
+    wrapVars'' (ConfVoice v) = ConfVoice v 
+    wrapVars'' p = p
   
 -- | Convert a 'SOP' term back to a type of /kind/ 'GHC.TypeLits.Nat'
 reifyNorm :: FlameRec -> CoreNorm -> Type
@@ -206,7 +212,7 @@ decideActsFor :: FlameRec
                      -> [Ct] -- ^ [W]anted constraints
                      -> TcPluginM TcPluginResult
 decideActsFor _ _ _ [] = return (TcPluginOk [] []) 
-decideActsFor flrec given derived wanteds = return $! case (pprTrace "failed" (ppr failed) failed) of
+decideActsFor flrec given derived wanteds = return $! case failed of
     [] -> TcPluginOk (mapMaybe (\c -> (,c) <$> evMagic flrec c) solved) []
     f  -> TcPluginContradiction f
   where
@@ -225,14 +231,18 @@ decideActsFor flrec given derived wanteds = return $! case (pprTrace "failed" (p
     afWanteds :: [(Ct,(CoreNorm,CoreNorm))]
     afWanteds = mapMaybe (toActsFor flrec) wanteds
 
-    flrec' = flrec{confClosure = confClosure, integClosure = integClosure}
+    flrec' = flrec{confClosure = confClosure,
+                   integClosure = --pprTrace "integ closure" (ppr integClosure)
+                                  integClosure}
 
     solved, failed :: [Ct]
     (solved,failed) = (map fst *** map fst)
                       $ partition (\a ->
                                     case actsFor flrec' (snd a) of
-                                    Just pf -> (pprTrace "proof" (ppr pf) True)
-                                    _       -> False
+                                    Just pf -> --pprTrace "proof" (ppr pf)
+                                               True
+                                    _       -> --pprTrace "failed" (ppr (snd a))
+                                               False
                                   )
                         afWanteds
 
@@ -244,7 +254,8 @@ expandGivens givens = unzip $ map
                             -- TODO: This fails on givens that aren't already in base form
                             (N (J [M [supC]]) (J [M [supI]]), 
                              N (J [M [infC]]) (J [M [infI]])) -> 
-                              ((supC, infC), (supI, infI)))
+                              ((supC, infC), (supI, infI))
+                            _ -> pprTrace "not in base form" (ppr given) undefined)
                         givens
   
   -- TODO: expand given constraints to base form
@@ -296,8 +307,8 @@ toActsFor flrec ct =
                        | tc == (actsfor flrec) -> 
                          let sup = normPrin flrec p in
                          let inf = normPrin flrec q in
-                            (pprTrace "wanted" (ppr (sup, inf)) $
-                             (Just (ct, (sup, inf))))
+                            --(pprTrace "wanted" (ppr (sup, inf)) $
+                             Just (ct, (sup, inf))
                      _ -> Nothing
     _ -> Nothing
 
@@ -324,7 +335,7 @@ actsFor flrec (p,q)
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = 
+  | otherwise = --pprTrace "actsFor" (ppr (p,q)) $
         do
           confPf <- confActsFor (conf p, conf q)
           integPf <- integActsFor (integ p, integ q)
@@ -347,7 +358,8 @@ actsForJ delClosure (p,q)
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = AFConj <$> conjProofs 
+  | otherwise = --pprTrace "actsForJ" (ppr (p,q)) $
+                AFConj <$> conjProofs 
   where
     top :: CoreJNorm
     top = J [M [T]]
@@ -357,11 +369,14 @@ actsForJ delClosure (p,q)
     (J pms, J qms) = (p,q)
     conjProofs :: Maybe [ActsForProof]
     conjProofs = sequence $ map (\qm ->
-                                  case map (\pm ->
-                                          actsForM delClosure (pm,qm))
-                                        pms of
-                                    (pf:pfs) -> pf
-                                    _ -> Nothing
+                                  case mapMaybe (\pm ->
+                                                  actsForM delClosure (pm,qm))
+                                                pms
+                                  of
+                                    (pf:pfs) ->
+                                      --pprTrace "found proof" (ppr pf) $
+                                      Just pf
+                                    [] -> Nothing
                                 )
                                 qms
 
@@ -382,11 +397,12 @@ actsForM delClosure (p,q)
     (M pbs, M qbs) = (p,q)
     disjProofs :: Maybe [ActsForProof]
     disjProofs = sequence $ map (\pb ->
-                                  case map (\qb ->
-                                          actsForB delClosure (pb,qb))
-                                        qbs of
-                                    (pf:pfs) -> pf
-                                    _ -> Nothing
+                                  case mapMaybe (\qb ->
+                                                  actsForB delClosure (pb,qb))
+                                                qbs
+                                  of
+                                    (pf:pfs) -> Just pf
+                                    [] -> Nothing
                                 )
                                 pbs
 -- IDEA for transitivity.  If all given dels are expressed "primitively", then transitivity can be  
@@ -398,7 +414,7 @@ actsForB delClosure (p,q)
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q  = Just AFRefl
-  | otherwise = 
+  | otherwise = --pprTrace "actsForB" (ppr (p,q)) $
     case find (== p) (superiors q) of
       Just del -> Just $ AFDel (p,q)
       _ -> Nothing
@@ -410,6 +426,7 @@ actsForB delClosure (p,q)
     superiors :: CoreBase -> [CoreBase]
     superiors q = case find ((== q) . fst) delClosure of
                     Just (q, sups) -> sups
+                    _ -> []
 
 evMagic :: FlameRec -> Ct -> Maybe EvTerm
 evMagic flrec ct = 

@@ -28,6 +28,7 @@ data Prin =
   | Disj  Prin Prin
   | Conf  Prin
   | Integ Prin
+  | Voice Prin
 
 {- The principal kind -}
 data KPrin =
@@ -38,6 +39,7 @@ data KPrin =
   | KDisj  KPrin KPrin
   | KConf  KPrin
   | KInteg KPrin
+  | KVoice KPrin
 
 {- Singleton GADT for KPrin -}
 data SPrin :: KPrin -> * where
@@ -48,6 +50,7 @@ data SPrin :: KPrin -> * where
   SDisj  :: SPrin p -> SPrin q -> SPrin (KDisj p q)
   SConf  :: SPrin p -> SPrin (KConf p)
   SInteg :: SPrin p -> SPrin (KInteg p)
+  SVoice :: SPrin p -> SPrin (KVoice p)
 
 deriving instance Show (SPrin p)
 deriving instance Eq (SPrin p)
@@ -74,38 +77,40 @@ promote p =
                       Ex p' -> case promote q of
                                  Ex q' -> Ex (SDisj p' q')
     (Conf p)    ->  case promote p of Ex p' -> Ex (SConf p')
-    (Integ p)   ->  case promote p of Ex p' -> Ex (SConf p')
+    (Integ p)   ->  case promote p of Ex p' -> Ex (SInteg p')
+    (Voice p)   ->  case promote p of Ex p' -> Ex (SVoice p')
 
 {- Some notation help -}
 type C p      = KConf p
 type I p      = KInteg p
+type Voice p  = KVoice p
 type N s      = KName s
 
-type p :/\: q = KConj p q
-type p :∧: q  = KConj p q
-infixl 7 :/\:
-infixl 7 :∧:
+type (/\) p q = KConj p q
+type (∧)  p q  = KConj p q
+infixl 7 /\
+infixl 7 ∧
 
-type p :\/: q = KDisj p q
-type p :∨: q  = KDisj p q
-infixl 7 :∨:
+type (\/) p q = KDisj p q
+type (∨)  p q = KDisj p q
+infixl 7 ∨
 
-type L c i    = (KConf c) :∧: (KInteg i)
 -- TODO: convert flow join/meet to type families so that
 --       resulting types are more normalized
-type p :⊔: q  = ((C p) :∧: (C q)) :∧: ((I p) :∨: (I q))
-infixl 6 :⊔:
-type p :⊓: q  = ((C p) :∨: (C q)) :∧: ((I p) :∧: (I q))
-infixl 6 :⊓:
+type (⊔) p q  = ((C p) ∧ (C q)) ∧ ((I p) ∨ (I q))
+infixl 6 ⊔
+type (⊓) p q  = ((C p) ∨ (C q)) ∧ ((I p) ∧ (I q))
+infixl 6 ⊓
 
 type Public   = C KBot
 type Trusted  = I KTop
-type PT       = Public :∧: Trusted 
+type PT       = Public ∧ Trusted 
 
 (^->) p   = SConf p
 (^→)  p   = SConf p
 (^<-) p   = SInteg p
-(^←)  p  = SInteg p
+(^←) p   = SInteg p
+voice p   = SVoice p
 (/\) p q  = SConj p q
 (∧)  p q  = SConj p q
 
@@ -133,9 +138,10 @@ withPrin :: Prin -> (forall p . Bound p -> a) -> a
 withPrin p f = case promote p of
                  Ex p' -> f (p <=> p') 
 
-{- The internal type family for the actsfor relation -}
+{- Actsfor constraint -}
 {- Exported type operators for actsfor -}
-type family (≽) (p :: KPrin) (q :: KPrin) :: Constraint
+type family (≽) (p :: KPrin) (q :: KPrin) :: Constraint where
+  KBot ≽ KBot = (True ~ True) -- until GHC 8.x, closed families cannot be empty.
 
 type (>=) (p :: KPrin) (q :: KPrin) = (p ≽ q) 
 
@@ -144,14 +150,26 @@ type (⊑) (p :: KPrin) (q :: KPrin) = ((C q ≽ C p) , (I p ≽ I q))
 type (<:) (p :: KPrin) (q :: KPrin) = ((C q ≽ C p) , (I p ≽ I q)) 
 type (===) (p :: KPrin) (q :: KPrin) = (p ≽ q, q ≽ p)
 
+{- Type synonyms for the types of authority evidence terms -}
+type (:≽) p q  = Def Pi (AFType p q)
+type (:>=) p q = Def Pi (AFType p q)
+type (:⊑) p q  = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
+type (:<:) p q = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
+
+{- Infix operators for constructing authority evidence terms -}
+(≽) :: SPrin p -> SPrin q -> Def Pi (AFType p q)
 (≽) p q = Del p q
+
+(>=) :: SPrin p -> SPrin q -> Def Pi (AFType p q)
 (>=) p q = Del p q
+
+(⊑) :: SPrin p -> SPrin q -> Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 (⊑) p q = Del ((q^→) ∧ (p^←)) ((p^→) ∧ (q^←))
+
+(<:) :: SPrin p -> SPrin q -> Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 (<:) p q = Del ((q^→) ∧ (p^←)) ((p^→) ∧ (q^←))
 
 infix 5 ≽,>=,⊑
-
-type family Voice (p :: KPrin) :: KPrin
 
 {-
 -------------------------------------------------------------------------------------
@@ -181,10 +199,9 @@ instance ReifiableConstraint Pi where
   data Def Pi (AFType p q) = Del { sup_ :: SPrin p, inf_ :: SPrin q}
   reifiedIns = Sub Dict
 
--- added 'b' to allow more general computation qualified by constraint p
--- Should not be exported (directly).
-using :: forall a p q. Def Pi (AFType p q) -> ((p ≽ q) => a) -> a
-using d m = reify d $ \(_ :: Proxy s) ->
+-- Should not be exported
+unsafeAssume :: forall a p q. (p :≽ q) -> ((p ≽ q) => a) -> a
+unsafeAssume d m = reify d $ \(_ :: Proxy s) ->
   let replaceProof :: Reifies s (Def Pi (AFType p q)) :- (p ≽ q)
       replaceProof = trans proof reifiedIns
         where proof = unsafeCoerceConstraint :: Pi (Lift Pi (AFType p q) s) :- (p ≽ q)

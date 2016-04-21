@@ -27,6 +27,7 @@ data Base v s
   | V v -- ^ Type var
   | B   -- ^ Bottom
   | T   -- ^ Top
+  | ConfVoice v -- ^ Voice of type var
   deriving (Eq,Ord)
 
 newtype MNorm v s = M { unM :: [Base v s]}
@@ -73,13 +74,13 @@ instance (Outputable v, Outputable s) => Outputable (Base v s) where
     ppr (V s)   = ppr s
     ppr B = text "⊥"
     ppr T = text "⊤"
+    ppr (ConfVoice v) = text "∇(" <+> ppr v <+> text "→)"
 
 mergeWith :: (a -> a -> Either a a) -> [a] -> [a]
 mergeWith _ []      = []
 mergeWith op (f:fs) = case partitionEithers $ map (`op` f) fs of
                         ([],_)              -> f : mergeWith op fs
                         (updated,untouched) -> mergeWith op (updated ++ untouched)
-
 
 -- | Merge two symbols of a Meet term
 --

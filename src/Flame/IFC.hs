@@ -2,6 +2,8 @@
     DataKinds, RankNTypes, FlexibleInstances, FlexibleContexts, TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.IFC
@@ -9,12 +11,13 @@ module Flame.IFC
         FIxMonad (..), Lbl, IFC, runIFC,
         liftLbl, liftLblx,
         protect, protectx,
-        relabel, relabelx, relabelxx
+        relabel, relabelx, relabelxx,
+        assume
        )
   where
 
 import Flame.Principals
-  
+ 
 {- A Flow-indexed monad for pure computations -}
 class FIxMonad (m :: KPrin -> * -> *) where
   label   :: a -> m l a
@@ -24,12 +27,6 @@ class FIxMonad (m :: KPrin -> * -> *) where
 
   (*>>=) :: (l ⊑ l') => m l a -> (a -> m l' b) -> m l' b
   (*>>=) = lbind
-
-  --relabel :: (l ⊑ l') => m l a -> m l' a
-  --relabel lx = lx *>>= (\x -> label x)
-
-  --relabelx :: (l ⊑ l') => SPrin l' -> m l a -> m l' a
-  --relabelx l' lx = lx *>>= (\x -> labelx l' x)
 
   fmapx  :: SPrin l -> (a -> b) -> m l a -> m l b
   fmapx l f x = x *>>= (\y -> labelx l (f y))
@@ -88,3 +85,7 @@ relabelxx  :: (pc ⊑ pc', l ⊑ l') => SPrin pc' -> SPrin l' -> IFC pc l a -> I
 relabelxx pc' l' x = UnsafeIFC $ do
                               a <- runIFC x;
                               return $ MkLbl (unsafeRunLbl a)
+
+assume :: (pc ≽ Voice q, Voice (C p) ≽ Voice (C q)) =>
+            (p :≽ q) -> ((p ≽ q) => IFC pc l a) -> IFC pc l a
+assume pf m = unsafeAssume pf m
