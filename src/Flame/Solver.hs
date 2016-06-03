@@ -257,7 +257,6 @@ expandGivens givens = unzip $ map
                               ((supC, infC), (supI, infI))
                             _ -> pprTrace "not in base form" (ppr given) undefined)
                         givens
-  
   -- TODO: expand given constraints to base form
 
 givenClosure :: [(CoreBase,CoreBase)] -> [(CoreBase, [CoreBase])]
@@ -405,8 +404,8 @@ actsForM delClosure (p,q)
                                     [] -> Nothing
                                 )
                                 pbs
--- IDEA for transitivity.  If all given dels are expressed "primitively", then transitivity can be  
---  exploited as simple reachability via given dels.
+-- IDEA for transitivity.  If all given dels are expressed "primitively",
+-- then transitivity can be exploited as simple reachability via given dels.
 actsForB :: DelClosure ->
             (CoreBase, CoreBase) ->
             Maybe ActsForProof
