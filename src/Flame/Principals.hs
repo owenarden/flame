@@ -29,6 +29,7 @@ data Prin =
   | Conf  Prin
   | Integ Prin
   | Voice Prin
+  deriving (Read, Eq, Show)
 
 {- The principal kind -}
 data KPrin =
