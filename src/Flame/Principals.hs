@@ -9,6 +9,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+
 
 module Flame.Principals
 where
@@ -18,6 +20,7 @@ import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
 import Data.Type.Bool
+import Data.Data
 
 {- The principal data type -}
 data Prin =
@@ -29,7 +32,7 @@ data Prin =
   | Conf  Prin
   | Integ Prin
   | Voice Prin
-  deriving (Read, Eq, Show)
+  deriving (Read, Eq, Show, Data, Typeable)
 
 {- The principal kind -}
 data KPrin =
