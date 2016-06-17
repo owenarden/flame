@@ -22,6 +22,8 @@ import Data.Reflection
 import Data.Type.Bool
 import Data.Data
 
+import Flame.Principals.Dynamic
+
 {- The principal kind -}
 data KPrin =
   KTop
