@@ -22,18 +22,6 @@ import Data.Reflection
 import Data.Type.Bool
 import Data.Data
 
-{- The principal data type -}
-data Prin =
-  Top
-  | Bot
-  | Name String
-  | Conj  Prin Prin 
-  | Disj  Prin Prin
-  | Conf  Prin
-  | Integ Prin
-  | Voice Prin
-  deriving (Read, Eq, Show, Data, Typeable)
-
 {- The principal kind -}
 data KPrin =
   KTop

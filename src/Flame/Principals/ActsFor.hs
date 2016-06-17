@@ -13,7 +13,7 @@ module Flame.Principals.ActsFor
   , mergeNormMeet
   )
 where
-import Flame.Principals
+import Flame.Principals.Dynamic
 
 -- External
 import Control.Arrow       ((***))
