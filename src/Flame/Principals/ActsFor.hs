@@ -59,7 +59,9 @@ actsForJ isConf delClosure (p,q)
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
   | otherwise = --pprTrace "actsForJ" (ppr (p,q)) $
-                AFConj <$> conjProofs 
+                case conjProofs of
+                  Just [conj] -> Just conj
+                  _      -> AFConj <$> conjProofs 
   where
     top :: JNorm
     top = J [M [T]]
@@ -88,7 +90,9 @@ actsForM isConf delClosure (p,q)
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = AFDisj <$> disjProofs
+  | otherwise = case disjProofs of
+                  Just [disj] -> Just disj
+                  _      -> AFDisj <$> disjProofs 
   where
     top :: MNorm
     top = M [T]
