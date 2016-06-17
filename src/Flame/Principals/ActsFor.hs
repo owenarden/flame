@@ -1,17 +1,4 @@
 module Flame.Principals.ActsFor
-  ( -- * JNorm types
-    Base (..)
-  , MNorm (..)
-  , JNorm (..)
-  , Norm (..)
-    -- * Simplification
-  , mergeB
-  , mergeM
-  , mergeJNormJoin
-  , mergeJNormMeet
-  , mergeNormJoin
-  , mergeNormMeet
-  )
 where
 import Flame.Principals.Dynamic
 
