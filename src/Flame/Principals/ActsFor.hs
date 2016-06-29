@@ -123,7 +123,7 @@ actsForB isConf delClosure (p,q)
   | p == q  = Just AFRefl
   | otherwise = --pprTrace "actsForB" (ppr (p,q)) $
     case find (== p) (superiors q) of
-      Just del -> if isConf
+      Just del -> if isConf then
                      Just $ AFDel (Conf (fromBase p), Conf (fromBase q))
                   else
                      Just $ AFDel (Integ (fromBase p), Integ (fromBase q))
