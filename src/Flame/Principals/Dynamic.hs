@@ -25,3 +25,6 @@ data ActsForProof =
     | AFConj [ActsForProof] -- for each RHS q, proof that there is a LHS p s.t. p > q 
     | AFDisj [ActsForProof] -- for each RHS q, proof that there is a LHS p s.t. p > q 
   deriving (Read, Eq, Show, Data, Typeable)
+
+join p q  = (Conj (Conj (Conf p) (Conf q)) (Disj (Integ p) (Integ q)))
+meet p q  = (Conj (Disj (Conf p) (Conf q)) (Conj (Integ p) (Integ q)))
