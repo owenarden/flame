@@ -13,7 +13,7 @@ import Data.List
 import Data.Either
 import Data.Data
 
-{- The principal data type -}
+-- | The principal data type 
 data Prin =
   Top
   | Bot
@@ -24,6 +24,7 @@ data Prin =
   | Integ Prin
   deriving (Read, Eq, Show, Data, Typeable)
 
+-- | Proof trees for acts for derivations
 data ActsForProof =                    
       AFTop
     | AFBot
@@ -36,30 +37,42 @@ data ActsForProof =
 join p q  = (Conj (Conj (Conf p) (Conf q)) (Disj (Integ p) (Integ q)))
 meet p q  = (Conj (Disj (Conf p) (Conf q)) (Conj (Integ p) (Integ q)))
 
+-- | Base principals for FLAM Join Normal Form
+-- Each Base principal is a primitive principal.
 data Base =
   P String -- ^ Primitive principal
   | B   -- ^ Bottom
   | T   -- ^ Top
   deriving (Eq, Show, Ord)
 
+-- | Meet principals for FLAM Join Normal Form
+-- Each MNorm is a meet of base principals.
 newtype MNorm = M { unM :: [Base]}
   deriving (Eq, Ord, Show)
 
+-- | Join principals for FLAM Join Normal Form
+-- Each JNorm is a join of meets.
 newtype JNorm = J { unJ :: [MNorm]}
   deriving (Eq, Ord, Show)
 
+-- | A principal in FLAM Join Normal Form
+-- Each Norm is a join of two principals: the confidentiality projection and the
+-- integrity projection, each in JNF.
 data Norm = N {conf :: JNorm, integ :: JNorm}
   deriving (Eq, Ord, Show)
 
+-- | Convert a Base principal to a Prin
 fromBase :: Base -> Prin
 fromBase B = Bot
 fromBase T = Top
 fromBase (P s) = Name s
 
+-- | The transitive closure of each principal's superiors.
 type DelClosure = [(JNorm, [JNorm])]
 
-actsFor :: DelClosure -- ^ [G]iven conf delegations
-           -> DelClosure -- ^ [G]iven integ delegations
+-- | Find a proof of an acts-for relationship, if one exists.
+actsFor :: DelClosure    -- ^ [C]onf delegations
+           -> DelClosure -- ^ [I]nteg delegations
            -> (Prin , Prin)
            -> Maybe ActsForProof
 actsFor confClosure integClosure (Top, q) = Just AFTop
@@ -179,6 +192,8 @@ subsequencesOfSize n xs = let l = length xs
    subsequencesBySize (x:xs) = let next = subsequencesBySize xs
                              in zipWith (++) ([]:next) (map (map (x:)) next ++ [[]])
 
+-- | Cartesian product of a JNorm principal
+--   This converts from a join of meets to a meet of joins.
 cartProd :: JNorm -> [JNorm]
 cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
   where mkM p = M [p]
@@ -193,16 +208,15 @@ cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
         the inferiors of each disjunct.
     - fixpoint?
 -}
+-- | Expand given delegations to "base form".  Base-form delegations are split
+--   into confidentiality delegations and integrity delegations, have no meets
+--   on the left-hand side, and no joins on the right-hand side.
+--   Thus, base-form delegations all have the form: (b ∧ b ...) ≽ (b ∨ b ...)
 expandGivens :: [(Prin,Prin)]
              -> ([(JNorm,JNorm)], [(JNorm,JNorm)])
 expandGivens givens = foldl
                       (\(cacc, iacc) given ->
                         case given of
-                          -- convert to "base form"
-                          -- base form is:
-                          --  (b ∧ b ...) ≽ (b ∨ b ...)
-                          --   joins of base principals on LHS
-                          --   meets of base principals on RHS
                           (N supJC supJI, N (J infMCs) (J infMIs)) -> 
                             ([(supC, J [infC]) | supC <- cartProd supJC, infC <- infMCs] ++ cacc,
                              [(supI, (J [infI])) | supI <- cartProd supJI, infI <- infMIs] ++ iacc)
@@ -210,6 +224,7 @@ expandGivens givens = foldl
                       ([] :: [(JNorm, JNorm)], [] :: [(JNorm, JNorm)])
                       [(normPrin p, normPrin q) | (p, q) <- givens]
   
+-- | Compute closure of given delegations.  Expects delegations to be in base form.
 givenClosure :: [(JNorm,JNorm)] -> [(JNorm, [JNorm])]
 givenClosure givens =
 
@@ -224,13 +239,11 @@ givenClosure givens =
         (b ∧ b ...) ≽ (b ∨ b ...)
       we want a node for each subsequence of conjuncts and disjuncts
     -}
-
     structJoinEdges :: JNorm -> [(JNorm, JNorm, [JNorm])]
     structJoinEdges (J []) = [] 
     structJoinEdges (J seq) = 
       [(J inf, J inf, [J seq]) | inf <- subsequencesOfSize (length seq - 1) seq]
       ++ concat [structJoinEdges (J inf) | inf <- subsequencesOfSize (length seq - 1) seq]
-
 
     structMeetEdges :: JNorm -> [(JNorm, JNorm, [JNorm])]
     structMeetEdges (J [M []]) = [] 
