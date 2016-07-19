@@ -103,7 +103,7 @@ use x f = apply x $ \x' -> lbind x' f
 lfmap :: (FLAMonad m n, l ⊑ l', pc ⊑ pc', l ⊑ pc') => (a -> b) -> FLA m n pc l a -> FLA m n pc' l' b
 lfmap f x = x *>>= (\y -> protect (f y))
 
-ljoin  :: (FLAMonad m n, l ⊑ l', pc ⊑ pc', l ⊑ pc') => FLA m n pc l (FLA m n pc' l' a) -> FLA m n pc' l' a
+ljoin  :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l (FLA m n pc' l' a) -> FLA m n pc' l' a
 ljoin x = x *>>= id
 
 {- A type for pure labeled computations -}

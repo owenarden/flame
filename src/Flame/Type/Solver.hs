@@ -424,7 +424,6 @@ expandGivens givens = foldl
                             ([(supC, J [infC]) | supC <- cartProd supJC, infC <- infMCs] ++ cacc,
                              [(supI, (J [infI])) | supI <- cartProd supJI, infI <- infMIs] ++ iacc)
                       )
-                      --    _ -> pprTrace "not in base form" (ppr given) undefined)
                       ([] :: [(CoreJNorm, CoreJNorm)], [] :: [(CoreJNorm, CoreJNorm)])
                       givens
   -- TODO: expand given constraints to "base form": conf or integ, no RHS conj, no LHS disj
@@ -446,6 +445,7 @@ givenClosure givens =
   where
     top = (J [M [T]])
     bot = (J [M [B]])
+    baseSeqToJ seq = J [M seq]
     {-
       For principals in a given in base form, 
         (b ∧ b ...) ≽ (b ∨ b ...)
@@ -454,15 +454,16 @@ givenClosure givens =
 
     structJoinEdges :: CoreJNorm -> [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     structJoinEdges (J []) = [] 
-    --structJoinEdges (J seq) = 
-    --  [(J inf, J inf, J seq) | inf <- subsequencesOfSize (length - 1) seq]
-    --  ++ concat [structJoinEdges inf | inf <- subsequencesOfSize (length - 1) seq]
+    structJoinEdges (J seq) = 
+      [(J inf, J inf, [J seq]) | inf <- subsequencesOfSize (length seq - 1) seq]
+      ++ concat [structJoinEdges (J inf) | inf <- subsequencesOfSize (length seq - 1) seq]
+
 
     structMeetEdges :: CoreJNorm -> [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     structMeetEdges (J [M []]) = [] 
-    --structMeetEdges (J [M seq]) = 
-    --  [(J . M seq, J . M seq, J . M sup) | sup <- subsequencesOfSize (length - 1) seq]
-    --  ++ concat [structMeetEdges sup | sup <- subsequencesOfSize (length - 1) seq]
+    structMeetEdges (J [M seq]) = 
+      [(baseSeqToJ seq, baseSeqToJ seq, map baseSeqToJ $ subsequencesOfSize (length seq - 1) seq)]
+      ++ concat [structMeetEdges (J [M sup]) | sup <- subsequencesOfSize (length seq - 1) seq]
 
     initialEdges :: [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     initialEdges = [(inf, inf, union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
@@ -472,7 +473,7 @@ givenClosure givens =
 
     principals :: [CoreJNorm]
     principals = [top, bot] ++ (nub $ concat [(map J $ concat [subsequencesOfSize i psC | i <- [1..length psC]]) ++
-                                              (map J $ fmap (:[]) $ map M $ concat [subsequencesOfSize i qs | i <- [1..length qs]])
+                                              (map baseSeqToJ $ concat [subsequencesOfSize i qs | i <- [1..length qs]])
                                              | (J psC, J [M qs]) <- givens])
 
     fixpoint edges = let (graph, vtxToEdges, prinToVtx) = graphFromEdges edges in
