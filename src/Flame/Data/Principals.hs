@@ -22,7 +22,6 @@ data Prin =
   | Disj  Prin Prin
   | Conf  Prin
   | Integ Prin
---  | Voice Prin
   deriving (Read, Eq, Show, Data, Typeable)
 
 data ActsForProof =                    
