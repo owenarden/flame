@@ -69,7 +69,7 @@ promote p =
                                  Ex q' -> Ex (SDisj p' q')
     (Conf p)    ->  case promote p of Ex p' -> Ex (SConf p')
     (Integ p)   ->  case promote p of Ex p' -> Ex (SInteg p')
-    (Voice p)   ->  case promote p of Ex p' -> Ex (SVoice p')
+--    (Voice p)   ->  case promote p of Ex p' -> Ex (SVoice p')
 
 {- Some notation help -}
 type C p      = KConf p

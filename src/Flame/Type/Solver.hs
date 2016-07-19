@@ -219,7 +219,7 @@ flamePlugin =
            , tcPluginStop  = \_ -> return ()
            }
 
-type DelClosure = [(CoreBase, [CoreBase])]
+type DelClosure = [(CoreJNorm, [CoreJNorm])]
 data FlameRec = FlameRec {
                        ktop         :: TyCon, 
                        kbot         :: TyCon, 
@@ -372,12 +372,12 @@ decideActsFor flrec given derived wanteds = return $! case failed of
     afGivens :: [(CoreNorm,CoreNorm)]
     afGivens = mapMaybe (toGiven flrec) given
 
-    (confExp,integExp) = expandGivens afGivens
+    (confExp, integExp) = expandGivens afGivens
 
-    confClosure :: [(CoreBase, [CoreBase])]
+    confClosure :: [(CoreJNorm, [CoreJNorm])]
     confClosure = givenClosure confExp 
 
-    integClosure :: [(CoreBase, [CoreBase])]
+    integClosure :: [(CoreJNorm, [CoreJNorm])]
     integClosure = givenClosure integExp 
 
     afWanteds :: [(Ct,(CoreNorm,CoreNorm))]
@@ -398,17 +398,35 @@ decideActsFor flrec given derived wanteds = return $! case failed of
                                   )
                         afWanteds
 
+subsequencesOfSize :: Int -> [a] -> [[a]]
+subsequencesOfSize n xs = let l = length xs
+                          in if n>l then [] else subsequencesBySize xs !! (l-n)
+ where
+   subsequencesBySize [] = [[[]]]
+   subsequencesBySize (x:xs) = let next = subsequencesBySize xs
+                             in zipWith (++) ([]:next) (map (map (x:)) next ++ [[]])
+
+cartProd :: CoreJNorm -> [CoreJNorm]
+cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
+  where mkM p = M [p]
+
 expandGivens :: [(CoreNorm,CoreNorm)]
-             -> ([(CoreBase,CoreBase)], [(CoreBase,CoreBase)])
-expandGivens givens = unzip $ map
-                        (\given ->
-                          case given of
-                            -- TODO: This fails on givens that aren't already in base form
-                            (N (J [M [supC]]) (J [M [supI]]), 
-                             N (J [M [infC]]) (J [M [infI]])) -> 
-                              ((supC, infC), (supI, infI))
-                            _ -> pprTrace "not in base form" (ppr given) undefined)
-                        givens
+             -> ([(CoreJNorm,CoreJNorm)], [(CoreJNorm,CoreJNorm)])
+expandGivens givens = foldl
+                      (\(cacc, iacc) given ->
+                        case given of
+                          -- convert to "base form"
+                          -- base form is:
+                          --  (b ∧ b ...) ≽ (b ∨ b ...)
+                          --   joins of base principals on LHS
+                          --   meets of base principals on RHS
+                          (N supJC supJI, N (J infMCs) (J infMIs)) -> 
+                            ([(supC, J [infC]) | supC <- cartProd supJC, infC <- infMCs] ++ cacc,
+                             [(supI, (J [infI])) | supI <- cartProd supJI, infI <- infMIs] ++ iacc)
+                      )
+                      --    _ -> pprTrace "not in base form" (ppr given) undefined)
+                      ([] :: [(CoreJNorm, CoreJNorm)], [] :: [(CoreJNorm, CoreJNorm)])
+                      givens
   -- TODO: expand given constraints to "base form": conf or integ, no RHS conj, no LHS disj
   {- TODO:
     - for each conjunction on the LHS, add a pseudo-node to the graph that is
@@ -420,30 +438,55 @@ expandGivens givens = unzip $ map
     - fixpoint?
   -}
 
-givenClosure :: [(CoreBase,CoreBase)] -> [(CoreBase, [CoreBase])]
-givenClosure givens = 
-    map (\q -> (q, case prinToVtx q of
-                   Just vtx -> map vtxToPrin $ reachable graph vtx))
-        principals
-  where
-    principals :: [CoreBase]
-    principals = [T, B] ++ (map head . group . sort $ (map inferior givens ++ map superior givens))
+givenClosure :: [(CoreJNorm,CoreJNorm)] -> [(CoreJNorm, [CoreJNorm])]
+givenClosure givens =
 
-    edges :: [(CoreBase, CoreBase, [CoreBase])]
-    edges =  map (\inf ->
-                   (inf, inf, [superior af | af  <- givens, inferior af == inf]))
-                 principals
-    (graph, vtxToEdges, prinToVtx) = graphFromEdges edges
-
-    vtxToPrin :: Vertex -> CoreBase
-    vtxToPrin v = let (x, _, _) = vtxToEdges v in x
-
-    inferior :: (CoreBase,CoreBase) -> CoreBase
-    inferior = snd
-
-    superior :: (CoreBase,CoreBase) -> CoreBase
-    superior = fst
+  [(inferior, superiors) | (inferior, _, superiors) <- fixpoint initialEdges]
     
+  where
+    top = (J [M [T]])
+    bot = (J [M [B]])
+    {-
+      For principals in a given in base form, 
+        (b ∧ b ...) ≽ (b ∨ b ...)
+      we want a node for each subsequence of conjuncts and disjuncts
+    -}
+
+    structJoinEdges :: CoreJNorm -> [(CoreJNorm, CoreJNorm, [CoreJNorm])]
+    structJoinEdges (J []) = [] 
+    --structJoinEdges (J seq) = 
+    --  [(J inf, J inf, J seq) | inf <- subsequencesOfSize (length - 1) seq]
+    --  ++ concat [structJoinEdges inf | inf <- subsequencesOfSize (length - 1) seq]
+
+    structMeetEdges :: CoreJNorm -> [(CoreJNorm, CoreJNorm, [CoreJNorm])]
+    structMeetEdges (J [M []]) = [] 
+    --structMeetEdges (J [M seq]) = 
+    --  [(J . M seq, J . M seq, J . M sup) | sup <- subsequencesOfSize (length - 1) seq]
+    --  ++ concat [structMeetEdges sup | sup <- subsequencesOfSize (length - 1) seq]
+
+    initialEdges :: [(CoreJNorm, CoreJNorm, [CoreJNorm])]
+    initialEdges = [(inf, inf, union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
+                                            $ concat [jsups | (jinf, _, jsups) <- structJoinEdges inf, jinf == inf])
+                                     $ concat [msups | (minf, _, msups) <- structJoinEdges inf, minf == inf])
+                    | inf <- principals]
+
+    principals :: [CoreJNorm]
+    principals = [top, bot] ++ (nub $ concat [(map J $ concat [subsequencesOfSize i psC | i <- [1..length psC]]) ++
+                                              (map J $ fmap (:[]) $ map M $ concat [subsequencesOfSize i qs | i <- [1..length qs]])
+                                             | (J psC, J [M qs]) <- givens])
+
+    fixpoint edges = let (graph, vtxToEdges, prinToVtx) = graphFromEdges edges in
+                     let vtxToPrin v = let (x, _, _) = vtxToEdges v in x in
+                     let newEdges = [(vtxToPrin inf, vtxToPrin inf, 
+                                                        (map vtxToPrin $ reachable graph inf) ++
+                                                        computeStructEdges (graph, vtxToEdges, prinToVtx) inf)
+                                    | inf <- vertices graph] in
+                     if edges == newEdges then
+                       newEdges 
+                     else
+                       fixpoint newEdges
+
+    computeStructEdges (graph, vtxToEdges, prinToVtx) vtx = []
 
 toGiven :: FlameRec -> Ct -> Maybe (CoreNorm, CoreNorm)
 toGiven flrec ct =
@@ -575,7 +618,7 @@ actsForB delClosure (p,q)
   | q == bot = Just AFBot
   | p == q  = Just AFRefl
   | otherwise = --pprTrace "actsForB" (ppr (p,q)) $
-    case find (== p) (superiors q) of
+    case find (== J [M [p]]) (superiors $ J [M [q]]) of
       Just del -> Just $ AFDel (p,q)
       _ -> Nothing
   where
@@ -583,7 +626,7 @@ actsForB delClosure (p,q)
     top = T
     bot :: CoreBase
     bot = B  
-    superiors :: CoreBase -> [CoreBase]
+    superiors :: CoreJNorm -> [CoreJNorm]
     superiors q = case find ((== q) . fst) delClosure of
                     Just (q, sups) -> sups
                     _ -> []

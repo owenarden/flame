@@ -22,7 +22,7 @@ data Prin =
   | Disj  Prin Prin
   | Conf  Prin
   | Integ Prin
-  | Voice Prin
+--  | Voice Prin
   deriving (Read, Eq, Show, Data, Typeable)
 
 data ActsForProof =                    
@@ -165,14 +165,15 @@ actsForB isConf delClosure (p,q)
 
 computeDelClosures :: [(Prin,Prin)] -> (DelClosure, DelClosure)
 computeDelClosures givens =
-  let (confGivens, integGivens) = unzip $ map
-                        (\(p,q) ->
+  let (confGivens, integGivens) = unzip $ foldl
+                        (\acc (p,q) ->
                           case (normPrin p, normPrin q) of
                             -- TODO: This fails on givens that aren't already in base form
                             (N (J [M [supC]]) (J [M [supI]]), 
                              N (J [M [infC]]) (J [M [infI]])) -> 
-                              ((supC, infC), (supI, infI))
+                              ((supC, infC), (supI, infI)):acc
                             _ -> error "not in base form" )
+                        []
                         givens
   in (computeClosure confGivens,  computeClosure integGivens) 
   -- TODO: expand given constraints to "base form": conf or integ, no RHS conj, no LHS disj
