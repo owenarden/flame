@@ -3,16 +3,18 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PostfixOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# OPTIONS_GHC -fplugin Flame.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-import Flame.Principals
-import Flame.IFC
+import Flame.Type.Principals
+import Flame.Type.IFC
+import Flame.Type.Assert
+
 type Alice = KName "Alice"
 type Bob = KName "Bob"
 
 test1 :: (KTop ≽ KBot) => String
 test1 = "Hello"
-test2 :: ((C KBot) ∧ (I KTop) ⊑ (C KTop) ∧ (I KBot)) => String
+test2 :: (((C KBot) ∧ (I KTop)) ⊑ ((C KTop) ∧ (I KBot))) => String
 test2 = "World"
 test3 :: (p ⊑ p) => SPrin p -> String
 test3 p = "World"
@@ -22,9 +24,6 @@ test4 = "World"
 
 test5 :: (KBot ≽ KTop) => String
 test5 = test1
-
-assertEq :: (l === l') => SPrin l -> SPrin l' -> ()
-assertEq l l' = ()
 
 eqTSym :: (l === l') => SPrin l -> SPrin l' -> ()
 eqTSym l l' = assertEq l' l
@@ -123,7 +122,7 @@ assertCBT :: (C KBot ⊑ C KTop) => ()
 assertCBT = ()
 testCBT = assertCBT
 
-assertRCV :: ((C p) ∧ (I p) ⊑ p ∧ (I KBot)) => SPrin p -> ()
+assertRCV :: (((C p) ∧ (I p)) ⊑ (p ∧ (I KBot))) => SPrin p -> ()
 assertRCV p = ()
 testRCV = assertRCV
 
@@ -135,24 +134,17 @@ testRCV = assertRCV
 --assertITB = ()
 --testITB = assertITB
 --
-----neg_flTConf ::  SPrin p -> ()
-----neg_flTConf p = assertFlowsTo ((p^→) ∧ (SBot^←)) p
-----
----- XXX: TODO: current gets 'Overlapping instances' error
-----neg_flTConf2 ::  SPrin p -> SPrin q -> ()
-----neg_flTConf2 p q = assertActsFor SBot (SConf q) --(p^→) 
-----
----- XXX: TODO: current gets 'Overlapping instances' error
-----neg_flTInteg ::  SPrin p -> SPrin q -> ()
-----neg_flTInteg p q = assertActsFor (p^→) ((p^→) ∧ (q^←))
+--neg_flTConf ::  SPrin p -> ()
+--neg_flTConf p = assertFlowsTo ((p^→) ∧ (SBot^←)) p
 --
---flTConfConjL :: SPrin p ->  SPrin q -> ()
---flTConfConjL p q = assertFlowsTo (p^→) ((p ∧ q)^→)  
+--neg_flTConf2 ::  SPrin p -> SPrin q -> ()
+--neg_flTConf2 p q = assertActsFor SBot (SConf q) --(p^→) 
 --
---assertActsFor :: ActsFor p q => SPrin p -> SPrin q -> ()
---assertActsFor p q = ()
---assertFlowsTo :: FlowsTo l l' => SPrin l -> SPrin l' -> ()
---assertFlowsTo l l' = ()
+--neg_flTInteg ::  SPrin p -> SPrin q -> ()
+--neg_flTInteg p q = assertActsFor (p^→) ((p^→) ∧ (q^←))
+--
+flTConfConjL :: SPrin p ->  SPrin q -> ()
+flTConfConjL p q = assertFlowsTo (p^→) ((p ∧ q)^→)  
 
 main :: IO ()
 main = print test1 --(test1 ++ test2 ++ (test3 STop)) 

@@ -94,13 +94,13 @@ class FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
   relabel :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
   relabel x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
 
-use :: (FLAMonad m n, l ⊑ l', pc ⊑ pc', l ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
+use :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
 use x f = apply x $ \x' -> lbind x' f
 
-(*>>=) ::  (FLAMonad m n, l ⊑ l', pc ⊑ pc', l ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
+(*>>=) ::  (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
 (*>>=) = use
 
-lfmap :: (FLAMonad m n, l ⊑ l', pc ⊑ pc', l ⊑ pc') => (a -> b) -> FLA m n pc l a -> FLA m n pc' l' b
+lfmap :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => (a -> b) -> FLA m n pc l a -> FLA m n pc' l' b
 lfmap f x = x *>>= (\y -> protect (f y))
 
 ljoin  :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l (FLA m n pc' l' a) -> FLA m n pc' l' a

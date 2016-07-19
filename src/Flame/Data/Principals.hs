@@ -43,12 +43,21 @@ data Base =
   | T   -- ^ Top
   deriving (Eq, Show, Ord)
 
+newtype MNorm = M { unM :: [Base]}
+  deriving (Eq, Ord, Show)
+
+newtype JNorm = J { unJ :: [MNorm]}
+  deriving (Eq, Ord, Show)
+
+data Norm = N {conf :: JNorm, integ :: JNorm}
+  deriving (Eq, Ord, Show)
+
 fromBase :: Base -> Prin
 fromBase B = Bot
 fromBase T = Top
 fromBase (P s) = Name s
 
-type DelClosure = [(Base, [Base])]
+type DelClosure = [(JNorm, [JNorm])]
 
 actsFor :: DelClosure -- ^ [G]iven conf delegations
            -> DelClosure -- ^ [G]iven integ delegations
@@ -147,7 +156,7 @@ actsForB isConf delClosure (p,q)
   | q == bot = Just AFBot
   | p == q  = Just AFRefl
   | otherwise = --pprTrace "actsForB" (ppr (p,q)) $
-    case find (== p) (superiors q) of
+    case find (== J [M [p]]) (superiors $ J [M [q]]) of
       Just del -> if isConf then
                      Just $ AFDel (Conf (fromBase p), Conf (fromBase q))
                   else
@@ -158,26 +167,25 @@ actsForB isConf delClosure (p,q)
     top = T
     bot :: Base
     bot = B  
-    superiors :: Base -> [Base]
+    superiors :: JNorm -> [JNorm]
     superiors q = case find ((== q) . fst) delClosure of
                     Just (q, sups) -> sups
                     _ -> []
 
-computeDelClosures :: [(Prin,Prin)] -> (DelClosure, DelClosure)
-computeDelClosures givens =
-  let (confGivens, integGivens) = unzip $ foldl
-                        (\acc (p,q) ->
-                          case (normPrin p, normPrin q) of
-                            -- TODO: This fails on givens that aren't already in base form
-                            (N (J [M [supC]]) (J [M [supI]]), 
-                             N (J [M [infC]]) (J [M [infI]])) -> 
-                              ((supC, infC), (supI, infI)):acc
-                            _ -> error "not in base form" )
-                        []
-                        givens
-  in (computeClosure confGivens,  computeClosure integGivens) 
-  -- TODO: expand given constraints to "base form": conf or integ, no RHS conj, no LHS disj
-  {- TODO:
+subsequencesOfSize :: Int -> [a] -> [[a]]
+subsequencesOfSize n xs = let l = length xs
+                          in if n>l then [] else subsequencesBySize xs !! (l-n)
+ where
+   subsequencesBySize [] = [[[]]]
+   subsequencesBySize (x:xs) = let next = subsequencesBySize xs
+                             in zipWith (++) ([]:next) (map (map (x:)) next ++ [[]])
+
+cartProd :: JNorm -> [JNorm]
+cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
+  where mkM p = M [p]
+
+{-
+    - expand given constraints to "base form": conf or integ, no RHS conj, no LHS disj
     - for each conjunction on the LHS, add a pseudo-node to the graph that is
         reachable from each conjunct and from which the intersection of the
         superiors of each conjunct are reachable.
@@ -185,39 +193,75 @@ computeDelClosures givens =
         reaches the disjunction and is reachable from the intersection of
         the inferiors of each disjunct.
     - fixpoint?
-  -}
+-}
+expandGivens :: [(Prin,Prin)]
+             -> ([(JNorm,JNorm)], [(JNorm,JNorm)])
+expandGivens givens = foldl
+                      (\(cacc, iacc) given ->
+                        case given of
+                          -- convert to "base form"
+                          -- base form is:
+                          --  (b ∧ b ...) ≽ (b ∨ b ...)
+                          --   joins of base principals on LHS
+                          --   meets of base principals on RHS
+                          (N supJC supJI, N (J infMCs) (J infMIs)) -> 
+                            ([(supC, J [infC]) | supC <- cartProd supJC, infC <- infMCs] ++ cacc,
+                             [(supI, (J [infI])) | supI <- cartProd supJI, infI <- infMIs] ++ iacc)
+                      )
+                      ([] :: [(JNorm, JNorm)], [] :: [(JNorm, JNorm)])
+                      [(normPrin p, normPrin q) | (p, q) <- givens]
+  
+givenClosure :: [(JNorm,JNorm)] -> [(JNorm, [JNorm])]
+givenClosure givens =
 
-computeClosure :: [(Base,Base)] -> DelClosure
-computeClosure givens = 
-    map (\q -> (q, case prinToVtx q of
-                   Just vtx -> map vtxToPrin $ reachable graph vtx))
-        principals
+  [(inferior, superiors) | (inferior, _, superiors) <- fixpoint initialEdges]
+    
   where
-    principals :: [Base]
-    principals = [T, B] ++ (map head . group . sort $ (map inferior givens ++ map superior givens))
+    top = (J [M [T]])
+    bot = (J [M [B]])
+    baseSeqToJ seq = J [M seq]
+    {-
+      For principals in a given in base form, 
+        (b ∧ b ...) ≽ (b ∨ b ...)
+      we want a node for each subsequence of conjuncts and disjuncts
+    -}
 
-    edges :: [(Base, Base, [Base])]
-    edges =  map (\inf ->
-                   (inf, inf, [superior af | af  <- givens, inferior af == inf]))
-                 principals
-    (graph, vtxToEdges, prinToVtx) = graphFromEdges edges
+    structJoinEdges :: JNorm -> [(JNorm, JNorm, [JNorm])]
+    structJoinEdges (J []) = [] 
+    structJoinEdges (J seq) = 
+      [(J inf, J inf, [J seq]) | inf <- subsequencesOfSize (length seq - 1) seq]
+      ++ concat [structJoinEdges (J inf) | inf <- subsequencesOfSize (length seq - 1) seq]
 
-    vtxToPrin :: Vertex -> Base
-    vtxToPrin v = let (x, _, _) = vtxToEdges v in x
 
-    inferior :: (Base,Base) -> Base
-    inferior = snd
+    structMeetEdges :: JNorm -> [(JNorm, JNorm, [JNorm])]
+    structMeetEdges (J [M []]) = [] 
+    structMeetEdges (J [M seq]) = 
+      [(baseSeqToJ seq, baseSeqToJ seq, map baseSeqToJ $ subsequencesOfSize (length seq - 1) seq)]
+      ++ concat [structMeetEdges (J [M sup]) | sup <- subsequencesOfSize (length seq - 1) seq]
 
-    superior :: (Base,Base) -> Base
-    superior = fst
-newtype MNorm = M { unM :: [Base]}
-  deriving (Eq, Ord, Show)
+    initialEdges :: [(JNorm, JNorm, [JNorm])]
+    initialEdges = [(inf, inf, union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
+                                            $ concat [jsups | (jinf, _, jsups) <- structJoinEdges inf, jinf == inf])
+                                     $ concat [msups | (minf, _, msups) <- structJoinEdges inf, minf == inf])
+                    | inf <- principals]
 
-newtype JNorm = J { unJ :: [MNorm]}
-  deriving (Eq, Ord, Show)
+    principals :: [JNorm]
+    principals = [top, bot] ++ (nub $ concat [(map J $ concat [subsequencesOfSize i psC | i <- [1..length psC]]) ++
+                                              (map baseSeqToJ $ concat [subsequencesOfSize i qs | i <- [1..length qs]])
+                                             | (J psC, J [M qs]) <- givens])
 
-data Norm = N {conf :: JNorm, integ :: JNorm}
-  deriving (Eq, Ord, Show)
+    fixpoint edges = let (graph, vtxToEdges, prinToVtx) = graphFromEdges edges in
+                     let vtxToPrin v = let (x, _, _) = vtxToEdges v in x in
+                     let newEdges = [(vtxToPrin inf, vtxToPrin inf, 
+                                                        (map vtxToPrin $ reachable graph inf) ++
+                                                        computeStructEdges (graph, vtxToEdges, prinToVtx) inf)
+                                    | inf <- vertices graph] in
+                     if edges == newEdges then
+                       newEdges 
+                     else
+                       fixpoint newEdges
+
+    computeStructEdges (graph, vtxToEdges, prinToVtx) vtx = []
 
 mergeWith :: (a -> a -> Either a a) -> [a] -> [a]
 mergeWith _ []      = []
