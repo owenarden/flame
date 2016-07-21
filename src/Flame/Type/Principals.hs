@@ -12,7 +12,19 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
 module Flame.Type.Principals
+       ( KPrin (..)
+       , SPrin (..)
+       , C, I, Voice, N
+       , Public, Secret, Trusted, Untrusted, PT, SU 
+       , DPrin (st, dyn) 
+       , withPrin
+       , type (/\), type (∧), type (\/), type (∨) 
+       , type (⊔), type (⊓)
+       , type (≽), type (>=), type (⊑), type (<:), type (===)
+       , (*->), (*→), (*<-), (*←), (*/\), (*∧), (*\/), (*∨), (*⊔), (*⊓)
+       )
 where
+
 import Data.Constraint
 import GHC.TypeLits
 import Data.Proxy (Proxy(..))
@@ -101,35 +113,31 @@ type Secret = C KTop
 type Untrusted  = I KBot
 type SU       = Secret ∧ Untrusted
 
-(^->) p   = SConf p
-(^→)  p   = SConf p
-(^<-) p   = SInteg p
-(^←) p   = SInteg p
-voice p   = SVoice p
-(/\) p q  = SConj p q
-(∧)  p q  = SConj p q
+(*->) p   = SConf p
+(*→)  p   = SConf p
 
-(\/) p q = SDisj p q
-(∨)  p q = SDisj p q
-(⊔)  p q  = ((p^→) ∧ (q^→)) ∧ ((p^←) ∨ (q^←))
-(⊓)  p q  = ((p^→) ∨ (q^→)) ∧ ((p^←) ∧ (q^←))
+(*<-) p   = SInteg p
+(*←) p   = SInteg p
 
-ptop = STop
-pbot = SBot
-public  = SConf pbot
-trusted = SInteg ptop
-publicTrusted = public ∧ trusted           
+(*/\) p q  = SConj p q
+(*∧)  p q  = SConj p q
+
+(*\/) p q  = SDisj p q
+(*∨)  p q  = SDisj p q
+
+(*⊔)  p q  = ((p*→) *∧ (q*→)) *∧ ((p*←) *∨ (q*←))
+(*⊓)  p q  = ((p*→) *∨ (q*→)) *∧ ((p*←) *∧ (q*←))
 
 -- do not export <=> or UnsafeBindP. This ensures only withPrin can associate
 --  runtime principals wth singleton principal types.
-data Bound p = UnsafeBindP { dyn :: Prin, st :: SPrin p } 
+data DPrin p = UnsafeBindP { dyn :: Prin, st :: SPrin p } 
 dynamic = dyn
 static = st 
-(<=>) :: Prin -> SPrin p -> Bound p
+(<=>) :: Prin -> SPrin p -> DPrin p
 p <=> sp = UnsafeBindP p sp
 
 {- Bind runtime principal to type -}
-withPrin :: Prin -> (forall p . Bound p -> a) -> a
+withPrin :: Prin -> (forall p . DPrin p -> a) -> a
 withPrin p f = case promote p of
                  Ex p' -> f (p <=> p') 
 
