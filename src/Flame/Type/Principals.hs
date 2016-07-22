@@ -14,13 +14,14 @@
 module Flame.Type.Principals
        ( KPrin (..)
        , SPrin (..)
-       , C, I, Voice, N
-       , Public, Secret, Trusted, Untrusted, PT, SU 
+       , C, I, type (^->), type (^→), type (^<-), type (^←)
+       , N, Public, Secret, Trusted, Untrusted, PT, SU 
        , DPrin (st, dyn) 
        , withPrin
        , type (/\), type (∧), type (\/), type (∨) 
        , type (⊔), type (⊓)
        , type (≽), type (>=), type (⊑), type (<:), type (===)
+       , type (∇), Voice, Δ, Eye
        , (*->), (*→), (*<-), (*←), (*/\), (*∧), (*\/), (*∨), (*⊔), (*⊓)
        )
 where
@@ -43,6 +44,7 @@ data KPrin =
   | KConf  KPrin
   | KInteg KPrin
   | KVoice KPrin
+  | KEye   KPrin
 
 {- Singleton GADT for KPrin -}
 data SPrin :: KPrin -> * where
@@ -54,6 +56,7 @@ data SPrin :: KPrin -> * where
   SConf  :: SPrin p -> SPrin (KConf p)
   SInteg :: SPrin p -> SPrin (KInteg p)
   SVoice :: SPrin p -> SPrin (KVoice p)
+  SEye   :: SPrin p -> SPrin (KEye   p)
 
 deriving instance Show (SPrin p)
 deriving instance Eq (SPrin p)
@@ -81,12 +84,16 @@ promote p =
                                  Ex q' -> Ex (SDisj p' q')
     (Conf p)    ->  case promote p of Ex p' -> Ex (SConf p')
     (Integ p)   ->  case promote p of Ex p' -> Ex (SInteg p')
---    (Voice p)   ->  case promote p of Ex p' -> Ex (SVoice p')
 
 {- Some notation help -}
 type C p      = KConf p
+type (^→) p  = KConf p
+type (^->) p  = KConf p
 type I p      = KInteg p
+type (^←) p  = KInteg p
+type (^<-) p  = KInteg p
 type Voice p  = KVoice p
+type Eye p    = KEye p
 type N s      = KName s
 
 type (/\) p q = KConj p q
@@ -97,6 +104,9 @@ infixl 7 ∧
 type (\/) p q = KDisj p q
 type (∨)  p q = KDisj p q
 infixl 7 ∨
+
+type (∇) p = Voice p
+type (Δ) p = Eye p
 
 -- TODO: convert flow join/meet to type families so that
 --       resulting types are more normalized

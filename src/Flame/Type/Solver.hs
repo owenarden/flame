@@ -58,7 +58,8 @@ data Base v s
   | V v -- ^ Type var
   | B   -- ^ Bottom
   | T   -- ^ Top
-  | ConfVoice v -- ^ Voice of type var
+  | VarVoice v -- ^ Voice of type var
+  | VarEye v -- ^ Eye of type var
   deriving (Eq,Ord)
 
 newtype MNorm v s = M { unM :: [Base v s]}
@@ -105,7 +106,8 @@ instance (Outputable v, Outputable s) => Outputable (Base v s) where
     ppr (V s)   = ppr s
     ppr B = text "⊥"
     ppr T = text "⊤"
-    ppr (ConfVoice v) = text "∇(" <+> ppr v <+> text "→)"
+    ppr (VarVoice v) = text "∇(" <+> ppr v <+> text "→)"
+    ppr (VarEye v) = text "Δ(" <+> ppr v <+> text "→)"
 
 mergeWith :: (a -> a -> Either a a) -> [a] -> [a]
 mergeWith _ []      = []
@@ -325,14 +327,25 @@ normPrin flrec (TyConApp tc [x,y])
                              mergeNormMeet x' y'
 
 voiceOf :: CoreNorm -> CoreNorm
-voiceOf (N conf integ) = N (J [M [B]]) (mergeJNormJoin (wrapVars conf) integ)
+voiceOf (N conf _) = N (J [M [B]]) (wrapVars conf)
   where
     wrapVars (J ms) = J (map wrapVars' ms)
     wrapVars' (M bs) = M (map wrapVars'' bs)
-    wrapVars'' (V v) = ConfVoice v 
-    wrapVars'' (ConfVoice v) = ConfVoice v 
+    wrapVars'' (V v) = VarVoice v 
+    wrapVars'' (VarVoice v) = VarVoice v 
+    wrapVars'' (VarEye v) = VarVoice v
     wrapVars'' p = p
   
+eyeOf :: CoreNorm -> CoreNorm
+eyeOf (N _ integ) = N (wrapVars integ) (J [M [B]]) 
+  where
+    wrapVars (J ms) = J (map wrapVars' ms)
+    wrapVars' (M bs) = M (map wrapVars'' bs)
+    wrapVars'' (V v) = VarEye v 
+    wrapVars'' (VarVoice v) = VarEye v 
+    wrapVars'' (VarEye v) = VarEye v 
+    wrapVars'' p = p
+
 -- | Convert a 'SOP' term back to a type of /kind/ 'GHC.TypeLits.Nat'
 reifyNorm :: FlameRec -> CoreNorm -> Type
 reifyNorm flrec (N (J cms) (J ims)) =

@@ -11,8 +11,8 @@
 
 module Flame.Type.IFC
        (
-        FLAMonad(..), IFC, Lbl, CtlT, runIFC,
-        (:≽), (:>=), (:⊑), (:<:),  -- Delegation types
+        FLAMonad(..), IFC, Lbl (MkLbl), CtlT, runIFC,
+        (:≽), (:=>=), (:⊑), (:<:),  -- Delegation types
         (≽), (=>=), (⊑), (<:),     -- Delegation constructors
        )
   where
