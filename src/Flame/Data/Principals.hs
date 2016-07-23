@@ -6,13 +6,8 @@ module Flame.Data.Principals
        ( Prin(..)
        , ActsForProof(..)
        , DelClosure
-       , (∇), voiceOf
-       , (^->), (^→), (^<-), (^←)
-       , (/\), (∧), (\/), (∨) 
-       , (⊔), (⊓), join, meet
-       , normalize
-       , actsFor
-       , computeDelClosure 
+       , voiceOf, eyeOf
+       , normalize, actsFor, computeDelClosure 
        )
 where
 
@@ -35,36 +30,15 @@ data Prin =
   | Integ Prin
   deriving (Read, Eq, Show, Data, Typeable)
 
-(^->) p   = Conf p
-(^→)  p   = Conf p
-
-(^<-) p   = Integ p
-(^←) p   = Integ p
-
-(/\) p q  = Conj p q
-(∧)  p q  = Conj p q
-
-(\/) p q  = Disj p q
-(∨)  p q  = Disj p q
-
-join p q  = p ⊔ q
-(⊔)  p q  = ((p^→) ∧ (q^→)) ∧ ((p^←) ∨ (q^←))
-meet p q  = p ⊓ q
-(⊓)  p q  = ((p^→) ∨ (q^→)) ∧ ((p^←) ∧ (q^←))
-
 public        = Conf Bot
 trusted       = Integ Top
-publicTrusted = public ∧ trusted           
-
-(∇) :: Prin -> Prin
-(∇) p = voiceOf p
+publicTrusted = Conj public trusted           
 
 voiceOf :: Prin -> Prin
 voiceOf p = let (N conf _) = normPrin p in
               reify $ N (J [M [B]]) conf
 
-δ :: Prin -> Prin
-δ p = eyeOf p
+eyeOf :: Prin -> Prin
 eyeOf p = let (N _ integ) = normPrin p in
               reify $ N integ (J [M [B]])
 

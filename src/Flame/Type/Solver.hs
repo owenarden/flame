@@ -230,7 +230,8 @@ data FlameRec = FlameRec {
                        kdisj        :: TyCon, 
                        kconf        :: TyCon, 
                        kinteg       :: TyCon,
-                       kvoice        :: TyCon,
+                       kvoice       :: TyCon,
+                       keye         :: TyCon,
                        actsfor      :: TyCon,
                        confClosure  :: DelClosure,
                        integClosure :: DelClosure
@@ -247,6 +248,7 @@ lookupFlameRec = do
     kconfDataNm  <- lookupName md (mkDataOcc "KConf")
     kintegDataNm <- lookupName md (mkDataOcc "KInteg")
     kvoiceDataNm <- lookupName md (mkDataOcc "KVoice")
+    keyeDataNm <- lookupName md (mkDataOcc "KEye")
     actsforNm    <- lookupName md (mkTcOcc "≽")
     ktopTc   <- promoteDataCon <$> tcLookupDataCon ktopDataNm
     kbotTc   <- promoteDataCon <$> tcLookupDataCon kbotDataNm
@@ -256,6 +258,7 @@ lookupFlameRec = do
     kconfTc  <- promoteDataCon <$> tcLookupDataCon kconfDataNm
     kintegTc <- promoteDataCon <$> tcLookupDataCon kintegDataNm
     kvoiceTc <- promoteDataCon <$> tcLookupDataCon kvoiceDataNm
+    keyeTc   <- promoteDataCon <$> tcLookupDataCon keyeDataNm
     actsforTc  <-  tcLookupTyCon actsforNm
     return FlameRec{
        ktop       = ktopTc
@@ -265,7 +268,8 @@ lookupFlameRec = do
     ,  kdisj      = kdisjTc
     ,  kconf      = kconfTc
     ,  kinteg     = kintegTc
-    ,  kvoice      = kvoiceTc
+    ,  kvoice     = kvoiceTc
+    ,  keye       = keyeTc
     ,  actsfor    = actsforTc
     ,  confClosure = []
     ,  integClosure = []
@@ -298,6 +302,8 @@ jnormPrin flrec isConf (TyConApp tc [x])
     if isConf then J [M [B]] else jnormPrin' x
   | tc == (kvoice flrec) =
     if isConf then J [M [B]] else integ $ voiceOf (normPrin flrec x)
+  | tc == (keye flrec) =
+    if isConf then conf $ eyeOf (normPrin flrec x) else J [M [B]]
   where jnormPrin' = jnormPrin flrec isConf
 jnormPrin flrec isConf (TyConApp tc [x,y])
   | tc == (kconj flrec) = mergeJNormJoin (jnormPrin' x) (jnormPrin' y)
@@ -318,6 +324,7 @@ normPrin flrec (TyConApp tc [x])
   | tc == (kconf flrec) =  N (jnormPrin flrec True x) (J [M [B]])
   | tc == (kinteg flrec) = N (J [M [B]]) (jnormPrin flrec False x)
   | tc == (kvoice flrec) =  voiceOf (normPrin flrec x)
+  | tc == (keye flrec) =  eyeOf (normPrin flrec x)
 normPrin flrec (TyConApp tc [x,y])
   | tc == (kconj flrec) = let x' = normPrin flrec x in
                           let y' = normPrin flrec y in

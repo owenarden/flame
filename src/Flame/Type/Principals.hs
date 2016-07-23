@@ -21,12 +21,14 @@ module Flame.Type.Principals
        , type (/\), type (∧), type (\/), type (∨) 
        , type (⊔), type (⊓)
        , type (≽), type (>=), type (⊑), type (<:), type (===)
-       , type (∇), Voice, Δ, Eye
-       , (*->), (*→), (*<-), (*←), (*/\), (*∧), (*\/), (*∨), (*⊔), (*⊓)
+       , type (∇), Voice, Δ, Eye, (∇), δ 
+       , (⊤), top, (⊥), bot
+       , (^->), (^→), (^<-), (^←)
+       , (/\), (∧), (\/), (∨), (⊔), (⊓)
        )
 where
 
-import Data.Constraint
+import Data.Constraint hiding (top)
 import GHC.TypeLits
 import Data.Proxy (Proxy(..))
 import Data.Type.Bool
@@ -115,6 +117,8 @@ infixl 6 ⊔
 type (⊓) p q  = ((C p) ∨ (C q)) ∧ ((I p) ∧ (I q))
 infixl 6 ⊓
 
+type (⊤) = KTop
+type (⊥) = KBot
 type Public   = C KBot
 type Trusted  = I KTop
 type PT       = Public ∧ Trusted 
@@ -146,6 +150,47 @@ static = st
 (<=>) :: Prin -> SPrin p -> DPrin p
 p <=> sp = UnsafeBindP p sp
 
+(⊤) :: DPrin (⊤)
+(⊤) = Top <=> STop
+top = (⊤)
+
+(⊥) :: DPrin (⊥)
+(⊥) = Bot <=> SBot
+bot = (⊥)
+
+(^→) :: DPrin p  -> DPrin (C p)
+(^→) p  = Conf (dyn p) <=> SConf (st p)
+(^->) = (^→)
+
+(^←) :: DPrin p  -> DPrin (I p)
+(^←) p = Integ (dyn p) <=> SInteg (st p)
+(^<-) = (^←)
+
+(∧) :: DPrin p -> DPrin q -> DPrin (p ∧ q) 
+(∧) p q = Conj (dyn p) (dyn q) <=> SConj (st p) (st q)
+(/\) = (∧)
+
+(∨) :: DPrin p -> DPrin q -> DPrin (p ∨ q) 
+(∨)  p q  = Disj (dyn p) (dyn q) <=> SDisj (st p) (st q)
+(\/) = (∨)
+
+(⊔) :: DPrin p -> DPrin q -> DPrin (p ⊔ q) 
+(⊔)  p q  = (Conj (Conf (Conj (dyn p) (dyn q)))
+             (Integ (Disj (dyn p) (dyn q)))) <=> ((st p) *⊔ (st q))
+join = (⊔)
+
+(⊓) :: DPrin p -> DPrin q -> DPrin (p ⊓ q) 
+(⊓) p q  = (Conj (Conf (Disj (dyn p) (dyn q)))
+            (Integ (Conj (dyn p) (dyn q)))) <=> ((st p) *⊓ (st q))
+meet = (⊓)
+
+(∇) :: DPrin p -> DPrin ((∇) p)
+(∇) p = voiceOf (dyn p) <=> SVoice (st p)
+        
+δ :: DPrin p -> DPrin (Δ p)
+δ p = eyeOf (dyn p) <=> SEye (st p)
+
+        
 {- Bind runtime principal to type -}
 withPrin :: Prin -> (forall p . DPrin p -> a) -> a
 withPrin p f = case promote p of
