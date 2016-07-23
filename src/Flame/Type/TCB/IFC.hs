@@ -86,11 +86,14 @@ class FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
   protect :: a -> FLA m n pc l a
   apply :: (pc ⊑ pc') => FLA m n pc l a -> (n l a -> FLA m n pc' l' b) -> FLA m n pc' l' b
   lbind :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> FLA m n pc l' b) -> FLA m n pc' l' b
-  --assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
-  assume :: (pc ⊑ ((∇) q ∧ (Δ p)), (∇) (C p) ≽ (∇) (C q)) =>
+  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
+  --assume :: (pc ⊑ ((∇) q ∧ (Δ p)), (∇) (C p) ≽ (∇) (C q)) =>
               (p :≽ q) -> ((p ≽ q) => FLA m n pc l a) -> FLA m n pc l a
   relabel :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
   relabel x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
+
+  protectx :: DPrin pc -> DPrin l -> a -> FLA m n pc l a
+  protectx pc l = protect
 
 use :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
 use x f = apply x $ \x' -> lbind x' f
@@ -127,14 +130,14 @@ ifc_apply :: (Monad e, pc ⊑ pc') => IFC e pc l a -> (Lbl l a -> IFC e pc' l' b
 ifc_apply x f = UnsafeIFC $ do a <- runIFC x
                                runIFC $ f a
 
---ifc_assume :: (Monad e, pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
---            (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
---ifc_assume pf m = unsafeAssume pf m
-
-
-ifc_assume :: (Monad e, pc ⊑ ((∇) q ∧ (Δ p)), (∇) (C p) ≽ (∇) (C q)) =>
-           (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
+ifc_assume :: (Monad e, pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
+            (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
 ifc_assume pf m = unsafeAssume pf m
+
+
+--ifc_assume :: (Monad e, pc ⊑ ((∇) q ∧ (Δ p)), (∇) (C p) ≽ (∇) (C q)) =>
+--           (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
+--ifc_assume pf m = unsafeAssume pf m
 
 instance Monad e => FLAMonad (CtlT e) Lbl where
   label   = ifc_label
