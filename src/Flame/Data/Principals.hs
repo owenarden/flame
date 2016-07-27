@@ -58,13 +58,12 @@ data ActsForProof =
 type DelClosure = [(JNorm, [JNorm])]
 
 -- | Find a proof of an acts-for relationship, if one exists.
-actsFor :: DelClosure    -- ^ [C]onf delegations
-           -> DelClosure -- ^ [I]nteg delegations
+actsFor :: [(Prin, Prin)]-- ^ [D]elegations
            -> (Prin , Prin)
            -> Maybe ActsForProof
-actsFor confClosure integClosure (Top, q) = Just AFTop
-actsFor confClosure integClosure (p , Bot) = Just AFBot
-actsFor confClosure integClosure (p,q)
+actsFor delegations (Top, q) = Just AFTop
+actsFor delegations (p , Bot) = Just AFBot
+actsFor delegations (p,q)
   | p == q    = Just AFRefl
   | otherwise = --pprTrace "actsFor" (ppr (p,q)) $
         let p' = normPrin p in
@@ -77,6 +76,8 @@ actsFor confClosure integClosure (p,q)
     top = N (J [M [T]]) (J [M [T]])
     bot :: Norm
     bot = N (J [M [B]]) (J [M [B]])
+
+    (confClosure, integClosure) = computeDelClosures delegations
 
     confActsFor :: (JNorm, JNorm) -> Maybe ActsForProof
     confActsFor = actsForJ True confClosure 
