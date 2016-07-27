@@ -7,7 +7,7 @@ module Flame.Data.Principals
        , ActsForProof(..)
        , DelClosure
        , voiceOf, eyeOf
-       , normalize, actsFor, computeDelClosure 
+       , normalize, actsFor, computeDelClosures
        )
 where
 
@@ -357,8 +357,8 @@ jnormPrin isConf (Disj p q) =
         the inferiors of each disjunct.
     - fixpoint?
 -}
-computeDelClosure :: [(Prin,Prin)] -> (DelClosure, DelClosure) 
-computeDelClosure dels = let (confGivens, integGivens) = expandGivens dels in
+computeDelClosures :: [(Prin,Prin)] -> (DelClosure, DelClosure) 
+computeDelClosures dels = let (confGivens, integGivens) = expandGivens dels in
                            (givenClosure confGivens, givenClosure integGivens)
 
 -- | Expand given delegations to "base form".  Base-form delegations are split
