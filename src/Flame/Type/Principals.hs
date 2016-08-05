@@ -25,6 +25,7 @@ module Flame.Type.Principals
        , (⊤), top, (⊥), bot
        , (^->), (^→), (^<-), (^←)
        , (/\), (∧), (\/), (∨), (⊔), (⊓)
+       , (*->), (*→), (*<-), (*←), (*/\), (*∧), (*\/), (*∨), (*⊔), (*⊓)
        )
 where
 
@@ -195,6 +196,11 @@ meet = (⊓)
 withPrin :: Prin -> (forall p . DPrin p -> a) -> a
 withPrin p f = case promote p of
                  Ex p' -> f (p <=> p') 
+
+{- TODO: move to IO -}
+type Console = (KName "console")
+console :: DPrin Console
+console = (Name "console") <=> (SName (Proxy :: Proxy "console"))
 
 {- Actsfor constraint -}
 {- Exported type operators for actsfor -}

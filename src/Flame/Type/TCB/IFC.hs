@@ -63,16 +63,16 @@ type (:⊑) p q  = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 type (:<:) p q = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 
 {- Infix operators for constructing authority evidence terms -}
-(≽) :: DPrin p -> DPrin q -> Def Pi (AFType p q)
-(≽) p q = Del (st p) (st q)
+(≽) :: SPrin p -> SPrin q -> Def Pi (AFType p q)
+(≽) p q = Del p q
 
-(=>=) :: DPrin p -> DPrin q -> Def Pi (AFType p q)
+(=>=) :: SPrin p -> SPrin q -> Def Pi (AFType p q)
 (=>=) = (≽)
 
-(⊑) :: DPrin p -> DPrin q -> Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
-(⊑) p q = ((q^→) ∧ (p^←)) ≽ ((p^→) ∧ (q^←))
+(⊑) :: SPrin p -> SPrin q -> Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
+(⊑) p q = ((q*→) *∧ (p*←)) ≽ ((p*→) *∧ (q*←))
 
-(<:) :: DPrin p -> DPrin q -> Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
+(<:) :: SPrin p -> SPrin q -> Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 (<:) = (⊑)
 
 infix 5 ≽,=>=,⊑,<:
@@ -82,17 +82,15 @@ type FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin
                                                                                                
 {- A monad-like class for flow-limited authorization -}
 class FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
-  label :: a -> n l a
   protect :: a -> FLA m n pc l a
   apply :: (pc ⊑ pc') => FLA m n pc l a -> (n l a -> FLA m n pc' l' b) -> FLA m n pc' l' b
   lbind :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> FLA m n pc l' b) -> FLA m n pc' l' b
   assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
-  --assume :: (pc ⊑ ((∇) q ∧ (Δ p)), (∇) (C p) ≽ (∇) (C q)) =>
               (p :≽ q) -> ((p ≽ q) => FLA m n pc l a) -> FLA m n pc l a
   relabel :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
   relabel x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
 
-  protectx :: DPrin pc -> DPrin l -> a -> FLA m n pc l a
+  protectx :: SPrin pc -> SPrin l -> a -> FLA m n pc l a
   protectx pc l = protect
 
 use :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
@@ -117,8 +115,11 @@ data CtlT e (pc::KPrin) a where
 
 type IFC e pc l a = CtlT e pc (Lbl l a)
 
-ifc_label :: a -> Lbl l a
-ifc_label = MkLbl
+label :: a -> Lbl l a
+label = MkLbl
+
+unlabel :: Lbl PT a -> a
+unlabel a = unsafeRunLbl a
 
 ifc_protect :: Monad e => a -> IFC e pc l a
 ifc_protect x = UnsafeIFC $ do return (MkLbl x)
@@ -134,13 +135,7 @@ ifc_assume :: (Monad e, pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q))
             (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
 ifc_assume pf m = unsafeAssume pf m
 
-
---ifc_assume :: (Monad e, pc ⊑ ((∇) q ∧ (Δ p)), (∇) (C p) ≽ (∇) (C q)) =>
---           (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
---ifc_assume pf m = unsafeAssume pf m
-
 instance Monad e => FLAMonad (CtlT e) Lbl where
-  label   = ifc_label
   protect = ifc_protect
   lbind   = ifc_lbind
   apply   = ifc_apply

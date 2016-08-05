@@ -18,7 +18,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:  Flame.Type.Solver, Flame.Type.Principals, Flame.Type.IFC, 
                     Flame.Type.TCB.IFC, Flame.Type.TCB.IFCPtr, 
-                    Flame.Type.Assert, Flame.Data.Principals, 
+                    Flame.Type.Assert, Flame.Data.Principals, Flame.IO,
                     GHC.Extra.Instances 
   -- other-modules:       
   other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
