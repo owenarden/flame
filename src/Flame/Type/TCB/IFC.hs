@@ -83,15 +83,20 @@ type FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin
 {- A monad-like class for flow-limited authorization -}
 class FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
   protect :: a -> FLA m n pc l a
+
+  lift :: n l a -> FLA m n pc l a
+  liftx :: SPrin pc -> n l a -> FLA m n pc l a
+  liftx pc = lift
+
+  protectx :: SPrin pc ->  a -> FLA m n pc l a
+  protectx pc = protect
+
   apply :: (pc ⊑ pc') => FLA m n pc l a -> (n l a -> FLA m n pc' l' b) -> FLA m n pc' l' b
   lbind :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> FLA m n pc l' b) -> FLA m n pc' l' b
   assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
               (p :≽ q) -> ((p ≽ q) => FLA m n pc l a) -> FLA m n pc l a
-  relabel :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
-  relabel x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
-
-  protectx :: SPrin pc -> SPrin l -> a -> FLA m n pc l a
-  protectx pc l = protect
+  reprotect :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
+  reprotect x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
 
 use :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
 use x f = apply x $ \x' -> lbind x' f
@@ -109,20 +114,43 @@ ljoin x = x *>>= id
 data Lbl (l::KPrin) a where
   MkLbl :: { unsafeRunLbl :: a } -> Lbl l a
 
-{- A transformer for effectful labeled computations -}
-data CtlT e (pc::KPrin) a where
-  UnsafeIFC :: Monad e => { runIFC :: e a } -> CtlT e pc a
+instance Functor (Lbl l) where
+  fmap f action = MkLbl $ f . unsafeRunLbl $ action  
 
-type IFC e pc l a = CtlT e pc (Lbl l a)
+instance Applicative (Lbl l) where
+  pure     = MkLbl 
+  a <*> b  = MkLbl $ (unsafeRunLbl a) $ (unsafeRunLbl b)
+
+instance Monad (Lbl l) where
+  return = label
+  (>>=)  = bind
 
 label :: a -> Lbl l a
 label = MkLbl
 
+bind :: (l ⊑ l') => Lbl l a -> (a -> Lbl l' b) -> Lbl l' b    
+bind x f = f (unsafeRunLbl x)
+
+relabel :: (l ⊑ l') => Lbl l a -> Lbl l' a
+relabel a = MkLbl $ unsafeRunLbl a
+
 unlabel :: Lbl PT a -> a
 unlabel a = unsafeRunLbl a
 
+{- A transformer for effectful labeled computations -}
+data CtlT e (pc::KPrin) a where
+  UnsafeIFC :: Monad e => { runIFC :: e a } -> CtlT e pc a
+
+runIFCx :: Monad e => SPrin pc -> CtlT e pc a -> e a
+runIFCx pc ctl = runIFC ctl 
+
+type IFC e pc l a = CtlT e pc (Lbl l a)
+
 ifc_protect :: Monad e => a -> IFC e pc l a
-ifc_protect x = UnsafeIFC $ do return (MkLbl x)
+ifc_protect x = UnsafeIFC $ return (MkLbl x)
+
+ifc_lift :: Monad e => Lbl l a -> IFC e pc l a
+ifc_lift  x = UnsafeIFC $ return x
 
 ifc_lbind :: (Monad e, l ⊑ l', l ⊑ pc) => Lbl l a -> (a -> IFC e pc l' b) -> IFC e pc' l' b
 ifc_lbind x f = UnsafeIFC $ runIFC $ f $ unsafeRunLbl x
@@ -137,6 +165,7 @@ ifc_assume pf m = unsafeAssume pf m
 
 instance Monad e => FLAMonad (CtlT e) Lbl where
   protect = ifc_protect
+  lift    = ifc_lift 
   lbind   = ifc_lbind
   apply   = ifc_apply
   assume  = ifc_assume
