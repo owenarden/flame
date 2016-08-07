@@ -93,10 +93,12 @@ class FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
 
   apply :: (pc ⊑ pc') => FLA m n pc l a -> (n l a -> FLA m n pc' l' b) -> FLA m n pc' l' b
   lbind :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> FLA m n pc l' b) -> FLA m n pc' l' b
-  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
+  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
               (p :≽ q) -> ((p ≽ q) => FLA m n pc l a) -> FLA m n pc l a
   reprotect :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
   reprotect x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
+  reprotectx :: (l ⊑ l', pc ⊑ pc') => SPrin pc' -> SPrin l' -> FLA m n pc l a -> FLA m n pc' l' a 
+  reprotectx  pc' l' x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
 
 use :: (FLAMonad m n, l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
 use x f = apply x $ \x' -> lbind x' f
@@ -134,8 +136,11 @@ bind x f = f (unsafeRunLbl x)
 relabel :: (l ⊑ l') => Lbl l a -> Lbl l' a
 relabel a = MkLbl $ unsafeRunLbl a
 
-unlabel :: Lbl PT a -> a
-unlabel a = unsafeRunLbl a
+unlabelPT :: Lbl PT a -> a
+unlabelPT a = unsafeRunLbl a
+
+unlabelUnit :: Lbl l () -> ()
+unlabelUnit a = unsafeRunLbl a
 
 {- A transformer for effectful labeled computations -}
 data CtlT e (pc::KPrin) a where
@@ -143,6 +148,9 @@ data CtlT e (pc::KPrin) a where
 
 runIFCx :: Monad e => SPrin pc -> CtlT e pc a -> e a
 runIFCx pc ctl = runIFC ctl 
+
+runIFCxx :: Monad e => SPrin pc -> SPrin l -> CtlT e pc (Lbl l a) -> e (Lbl l a)
+runIFCxx pc l ctl = runIFC ctl 
 
 type IFC e pc l a = CtlT e pc (Lbl l a)
 
@@ -159,7 +167,7 @@ ifc_apply :: (Monad e, pc ⊑ pc') => IFC e pc l a -> (Lbl l a -> IFC e pc' l' b
 ifc_apply x f = UnsafeIFC $ do a <- runIFC x
                                runIFC $ f a
 
-ifc_assume :: (Monad e, pc ≽ ((I q) ∧ (∇) q), (∇) (C p) ≽ (∇) (C q)) =>
+ifc_assume :: (Monad e, pc ≽ (I q ∧ (∇) q), (∇) p ≽ (∇) q) =>
             (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
 ifc_assume pf m = unsafeAssume pf m
 

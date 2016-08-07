@@ -2,7 +2,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
-module Password where
 
 import Prelude hiding (print, putStr, putStrLn, getLine)
 import Data.List
@@ -25,16 +24,18 @@ aliceSecret = MkLbl "secret"
 password :: Lbl Alice String
 password = MkLbl "jbixkt"
 
-chkPass :: Monad e => DPrin client
+chkPass :: Monad e =>
+        DPrin client
         -> String
-        -> IFC e Alice (I Alice) (Maybe (client :≽ Alice))
+        -> IFC e Alice (I Alice) 
+           (Maybe (Voice client :≽ Voice Alice, client :≽ Alice))
 chkPass client guess =
-   assume (Del (SBot*←) (alice*←)) $
-   assume (Del (SBot*→) (alice*→)) $
+   assume ((SBot*←) ≽ (alice*←)) $
+   assume ((SBot*→) ≽ (alice*→)) $
    lbind password $ \pwd ->
      protectx alice $ 
      if pwd == guess then
-       Just $ (st client) ≽ alice
+       Just $ (SVoice (st client) ≽ SVoice alice, (st client) ≽ alice)
      else Nothing
 
 getPassword :: DPrin client
@@ -47,13 +48,18 @@ getPassword client_ stdin stdout = do
                                   lift $ relabel guess
 
 main :: IO ()
-main = undefined
---    withPrin (Name "Client") $ \dclient -> 
---      let stdout = mkStdout (dclient^→) in
---      let stdin  = mkStdin (dclient^←) in
---          lbind lpass $ \pass -> 
---            case chkPass dclient dalice pass of
---              Just lDel -> lbind lDel $ \del ->
---                lbind aliceSecret $ \secret -> 
---                      assume del $ hPutStr stdout secret
---              Nothing -> hPutStr stdout "Incorrect password."
+main = withPrin (Name "Client") $ \dclient -> 
+        let client_c = ((st dclient)*→) in
+        let client_i = ((st dclient)*←) in
+        let pc = client_c *∧ (alice*←) in
+        let stdout = mkStdout client_c in
+        let stdin  = mkStdin client_i in
+        do pass <- getPassword dclient stdin stdout 
+           ldel <- runIFC $ lbind pass $ chkPass dclient
+           _    <- runIFC $ lbind ldel $ \mdel -> 
+                    case mdel of
+                      Just (vdel,del) -> assume vdel $ assume del $
+                                         lbind aliceSecret $ \secret -> 
+                                           hPutStrLnx pc stdout secret
+                      Nothing -> hPutStrLnx pc stdout "Incorrect password."
+           return ()
