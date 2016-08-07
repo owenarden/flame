@@ -18,18 +18,22 @@ import Flame.IO
 alice  = SName (Proxy :: Proxy "Alice")
 type Alice = KName "Alice"
 
+{- Alice's secret -}
 aliceSecret :: Lbl Alice String
 aliceSecret = MkLbl "secret"
 
+{- A password for protecting that secret -}
 password :: Lbl Alice String
-password = MkLbl "jbixkt"
+password = MkLbl "password"
 
+{- | Compare a string to the password -}
 chkPass :: Monad e =>
         DPrin client
         -> String
-        -> IFC e Alice (I Alice) 
+        -> IFC e (I Alice) (I Alice) 
            (Maybe (Voice client :≽ Voice Alice, client :≽ Alice))
 chkPass client guess =
+   {- Declassify the comparison with the password -}
    assume ((SBot*←) ≽ (alice*←)) $
    assume ((SBot*→) ≽ (alice*→)) $
    lbind password $ \pwd ->
@@ -38,14 +42,15 @@ chkPass client guess =
        Just $ (SVoice (st client) ≽ SVoice alice, (st client) ≽ alice)
      else Nothing
 
-getPassword :: DPrin client
+{- | Get the password from the client -}
+inputPassword :: DPrin client
             -> IFCHandle (I client)
             -> IFCHandle (C client)
-            -> IO (Lbl (I Alice) String)
-getPassword client_ stdin stdout = do
-      guess <- runIFC $ hGetLine stdin
-      runIFCx (alice*←) $ assume ((st (client_^←)) ≽ (alice*←)) $
-                                  lift $ relabel guess
+            -> IFC IO (I Alice) (I Alice) String
+inputPassword client_ stdin stdout = do
+      {- Endorse the guess to have Alice's integrity -}
+      assume ((st (client_^←)) ≽ (alice*←)) $
+        reprotect $ hGetLinex (alice*←) stdin
 
 main :: IO ()
 main = withPrin (Name "Client") $ \dclient -> 
@@ -54,12 +59,14 @@ main = withPrin (Name "Client") $ \dclient ->
         let pc = client_c *∧ (alice*←) in
         let stdout = mkStdout client_c in
         let stdin  = mkStdin client_i in
-        do pass <- getPassword dclient stdin stdout 
-           ldel <- runIFC $ lbind pass $ chkPass dclient
-           _    <- runIFC $ lbind ldel $ \mdel -> 
-                    case mdel of
-                      Just (vdel,del) -> assume vdel $ assume del $
-                                         lbind aliceSecret $ \secret -> 
-                                           hPutStrLnx pc stdout secret
-                      Nothing -> hPutStrLnx pc stdout "Incorrect password."
-           return ()
+          do _ <- runIFC $ use (inputPassword dclient stdin stdout) $ \pass ->
+                           use (chkPass dclient pass) $ \mdel -> 
+                             case mdel of
+                               Just (vdel,del) ->
+                                 {- Use the granted authority print Alice's secret -}
+                                 assume vdel $ assume del $
+                                   lbind aliceSecret $ \secret ->
+                                   hPutStrLnx pc stdout secret
+                               Nothing ->
+                                 hPutStrLnx pc stdout "Incorrect password."
+             return ()
