@@ -1,6 +1,5 @@
 {-# LANGUAGE TypeOperators, PostfixOperators #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
 import Prelude hiding (print, putStr, putStrLn, getLine)
@@ -43,11 +42,11 @@ chkPass client guess =
      else Nothing
 
 {- | Get the password from the client -}
-inputPassword :: DPrin client
+inputPass :: DPrin client
             -> IFCHandle (I client)
             -> IFCHandle (C client)
             -> IFC IO (I Alice) (I Alice) String
-inputPassword client_ stdin stdout = do
+inputPass client_ stdin stdout = do
       {- Endorse the guess to have Alice's integrity -}
       assume ((st (client_^←)) ≽ (alice*←)) $
         reprotect $ hGetLinex (alice*←) stdin
@@ -59,7 +58,7 @@ main = withPrin (Name "Client") $ \dclient ->
         let pc = client_c *∧ (alice*←) in
         let stdout = mkStdout client_c in
         let stdin  = mkStdin client_i in
-          do _ <- runIFC $ use (inputPassword dclient stdin stdout) $ \pass ->
+          do _ <- runIFC $ use (inputPass dclient stdin stdout) $ \pass ->
                            use (chkPass dclient pass) $ \mdel -> 
                              case mdel of
                                Just (vdel,del) ->
