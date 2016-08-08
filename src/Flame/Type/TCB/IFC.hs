@@ -117,11 +117,12 @@ data Lbl (l::KPrin) a where
   MkLbl :: { unsafeRunLbl :: a } -> Lbl l a
 
 instance Functor (Lbl l) where
-  fmap f action = MkLbl $ f . unsafeRunLbl $ action  
+  fmap f action = bind action $ \a -> label $ f a 
 
 instance Applicative (Lbl l) where
-  pure     = MkLbl 
-  a <*> b  = MkLbl $ (unsafeRunLbl a) $ (unsafeRunLbl b)
+  pure     = label  
+  a <*> b  = bind a $ \f ->
+              bind b $ \b' -> label $ f b'
 
 instance Monad (Lbl l) where
   return = label
@@ -133,14 +134,14 @@ label = MkLbl
 bind :: (l ⊑ l') => Lbl l a -> (a -> Lbl l' b) -> Lbl l' b    
 bind x f = f (unsafeRunLbl x)
 
-relabel :: (l ⊑ l') => Lbl l a -> Lbl l' a
-relabel a = MkLbl $ unsafeRunLbl a
-
 unlabelPT :: Lbl PT a -> a
 unlabelPT a = unsafeRunLbl a
 
 unlabelUnit :: Lbl l () -> ()
 unlabelUnit a = unsafeRunLbl a
+
+relabel :: (l ⊑ l') => Lbl l a -> Lbl l' a
+relabel a = bind a label
 
 {- A transformer for effectful labeled computations -}
 data CtlT e (pc::KPrin) a where

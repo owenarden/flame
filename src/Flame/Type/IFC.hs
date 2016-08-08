@@ -15,6 +15,7 @@ module Flame.Type.IFC
         , (:≽), (:=>=), (:⊑), (:<:)  -- Delegation types
         , Def(..), (≽), (=>=), (⊑), (<:)     -- Delegation constructors
         , relabel, label, unlabelPT, unlabelUnit
+        , lfmap, ljoin                             
        )
   where
 
