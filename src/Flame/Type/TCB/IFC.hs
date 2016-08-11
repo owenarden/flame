@@ -164,15 +164,11 @@ lbl_unlabelPT a = unsafeRunLbl a
 lbl_unlabelU :: Lbl l () -> ()
 lbl_unlabelU a = unsafeRunLbl a
 
-
 {- A transformer for effectful labeled computations -}
 data CtlT e (pc::KPrin) a where
   UnsafeIFC :: Monad e => { runIFC :: e a } -> CtlT e pc a
 
 type IFC e pc l a = CtlT e pc (Lbl l a)
-
-ifc_protect :: Monad e => a -> IFC e pc l a
-ifc_protect x = UnsafeIFC $ return (MkLbl x)
 
 ifc_lift :: Monad e => Lbl l a -> IFC e pc l a
 ifc_lift  x = UnsafeIFC $ return x
@@ -189,7 +185,6 @@ ifc_assume :: (Monad e, pc ≽ (I q ∧ (∇) q), (∇) p ≽ (∇) q) =>
 ifc_assume pf m = unsafeAssume pf m
 
 instance Monad e => FLAMonad (CtlT e) Lbl where
-  protect = ifc_protect
   lift    = ifc_lift 
   lbind   = ifc_lbind
   apply   = ifc_apply
