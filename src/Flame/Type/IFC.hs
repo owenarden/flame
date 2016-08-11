@@ -11,11 +11,11 @@
 
 module Flame.Type.IFC
        (
-          FLAMonad(..), IFC, Lbl (MkLbl), CtlT, runIFC, runIFCx, runIFCxx, use
+          FLAMonad(..), IFC, Lbl, CtlT, runIFC, runIFCx, runIFCxx, use
         , (:≽), (:=>=), (:⊑), (:<:)  -- Delegation types
         , Def(..), (≽), (=>=), (⊑), (<:)     -- Delegation constructors
         , relabel, label, unlabelPT, unlabelUnit
-        , lfmap, ljoin                             
+        , lfmap, ljoin, lseq
        )
   where
 

@@ -23,9 +23,10 @@ module Flame.Type.Principals
        , type (≽), type (>=), type (⊑), type (<:), type (===)
        , type (∇), Voice, Δ, Eye, (∇), δ 
        , (⊤), top, (⊥), bot
+       , public, trusted, publicTrusted, secret, untrusted, secretUntrusted
        , (^->), (^→), (^<-), (^←)
        , (/\), (∧), (\/), (∨), (⊔), (⊓)
-       , (*->), (*→), (*<-), (*←), (*/\), (*∧), (*\/), (*∨), (*⊔), (*⊓)
+       , (*->), (*→), (*<-), (*←), (*/\), (*∧), (*\/), (*∨), (*⊔), (*⊓), (*∇)  
        )
 where
 
@@ -134,6 +135,8 @@ type SU       = Secret ∧ Untrusted
 (*<-) p   = SInteg p
 (*←) p   = SInteg p
 
+(*∇)  p = SVoice p
+
 (*/\) p q  = SConj p q
 (*∧)  p q  = SConj p q
 
@@ -142,6 +145,20 @@ type SU       = Secret ∧ Untrusted
 
 (*⊔)  p q  = ((p*→) *∧ (q*→)) *∧ ((p*←) *∨ (q*←))
 (*⊓)  p q  = ((p*→) *∨ (q*→)) *∧ ((p*←) *∧ (q*←))
+
+public :: SPrin Public
+public = SConf SBot
+trusted  :: SPrin Trusted
+trusted  = SInteg STop
+publicTrusted :: SPrin PT
+publicTrusted = public *∧ trusted
+
+secret :: SPrin Secret
+secret = (SConf STop)
+untrusted  :: SPrin Untrusted
+untrusted  = (SInteg SBot)
+secretUntrusted :: SPrin SU
+secretUntrusted = secret *∧ untrusted
 
 -- do not export <=> or UnsafeBindP. This ensures only withPrin can associate
 --  runtime principals wth singleton principal types.

@@ -153,6 +153,16 @@ runIFCx pc ctl = runIFC ctl
 runIFCxx :: Monad e => SPrin pc -> SPrin l -> CtlT e pc (Lbl l a) -> e (Lbl l a)
 runIFCxx pc l ctl = runIFC ctl 
 
+lseq :: Monad e => IFC e pc l a -> IFC e pc l' b ->  IFC e pc l' b 
+lseq a b = UnsafeIFC $ do runIFC a ; 
+                          b' <- runIFC b
+                          return $ b'
+
+--seq :: (pc ⊑ pc') => IFC e pc l a -> IFC e pc' l' b ->  IFC e pc' l' b 
+--seq a b = UnsafeIFC $ do _ <- runIFC a
+--                         b <- runIFC b
+--                         return $ b
+
 type IFC e pc l a = CtlT e pc (Lbl l a)
 
 ifc_protect :: Monad e => a -> IFC e pc l a
