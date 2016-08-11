@@ -81,10 +81,10 @@ infix 5 ≽,=>=,⊑,<:
 type FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a = m pc (n l a)
                                                                                                
 class FMonad (n :: KPrin -> * -> *) where
-  label :: a -> n l a
-  bind  :: (l ⊑ l') => n l a -> (a -> n l' b) -> n l' b
+  label     :: a -> n l a
+  bind      :: (l ⊑ l') => n l a -> (a -> n l' b) -> n l' b
   unlabelPT :: n PT a -> a
-  unlabelU :: n l () -> ()
+  unlabelU  :: n l () -> ()
   
   relabel :: (l ⊑ l') => n l a -> n l' a
   relabel a = bind a label
@@ -99,6 +99,7 @@ class FMonad n => FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
 
   protect :: a -> FLA m n pc l a
   protect = lift . label
+
   reprotect :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
   reprotect x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
 
@@ -120,8 +121,10 @@ class FMonad n => FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
   {- XXX: The below operations will become unecessary with a GLB solver -}
   liftx :: SPrin pc -> n l a -> FLA m n pc l a
   liftx pc = lift
+
   protectx :: SPrin pc ->  a -> FLA m n pc l a
   protectx pc = protect
+
   reprotectx :: (l ⊑ l', pc ⊑ pc') => SPrin pc' -> SPrin l' -> FLA m n pc l a -> FLA m n pc' l' a 
   reprotectx  pc' l' x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
 
@@ -166,16 +169,6 @@ lbl_unlabelU a = unsafeRunLbl a
 data CtlT e (pc::KPrin) a where
   UnsafeIFC :: Monad e => { runIFC :: e a } -> CtlT e pc a
 
-runIFCx :: Monad e => SPrin pc -> CtlT e pc a -> e a
-runIFCx pc ctl = runIFC ctl 
-
-runIFCxx :: Monad e => SPrin pc -> SPrin l -> CtlT e pc (Lbl l a) -> e (Lbl l a)
-runIFCxx pc l ctl = runIFC ctl 
---seq :: (pc ⊑ pc') => IFC e pc l a -> IFC e pc' l' b ->  IFC e pc' l' b 
---seq a b = UnsafeIFC $ do _ <- runIFC a
---                         b <- runIFC b
---                         return $ b
-
 type IFC e pc l a = CtlT e pc (Lbl l a)
 
 ifc_protect :: Monad e => a -> IFC e pc l a
@@ -201,3 +194,10 @@ instance Monad e => FLAMonad (CtlT e) Lbl where
   lbind   = ifc_lbind
   apply   = ifc_apply
   assume  = ifc_assume
+
+{- XXX: The below operations will become unecessary with a GLB solver -}
+runIFCx :: Monad e => SPrin pc -> CtlT e pc a -> e a
+runIFCx pc ctl = runIFC ctl 
+
+runIFCxx :: Monad e => SPrin pc -> SPrin l -> CtlT e pc (Lbl l a) -> e (Lbl l a)
+runIFCxx pc l ctl = runIFC ctl 
