@@ -5,7 +5,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+--{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -64,30 +64,6 @@ data SPrin :: KPrin -> * where
 
 deriving instance Show (SPrin p)
 deriving instance Eq (SPrin p)
-
-{- Existential wrapper -}
-data Ex (p ::k -> *) where
-  Ex :: p i -> Ex p
-
---{- Existential type-level principals -}
-type WPrin = Ex SPrin
-
-{- Promote runtime principals to existentially-wrapped principal types -}
-promote :: Prin -> WPrin
-promote p =
-  case p of
-    Top         ->  Ex STop
-    Bot         ->  Ex SBot
-    (Name str)  ->  case someSymbolVal str of
-                      SomeSymbol n -> Ex (SName n)
-    (Conj p q)  ->  case promote p of
-                      Ex p' -> case promote q of
-                                 Ex q' -> Ex (SConj p' q')
-    (Disj p q)  ->  case promote p of
-                      Ex p' -> case promote q of
-                                 Ex q' -> Ex (SDisj p' q')
-    (Conf p)    ->  case promote p of Ex p' -> Ex (SConf p')
-    (Integ p)   ->  case promote p of Ex p' -> Ex (SInteg p')
 
 {- Some notation help -}
 type C p      = KConf p
@@ -160,13 +136,39 @@ untrusted  = (SInteg SBot)
 secretUntrusted :: SPrin SU
 secretUntrusted = secret *∧ untrusted
 
+{- Existential wrapper -}
+data Ex (p :: k -> *) where
+  Ex :: p i -> Ex p
+
+{- Promote runtime principals to existentially-wrapped principal types -}
+promote :: Prin -> Ex SPrin
+promote p =
+  case p of
+    Top         ->  Ex STop
+    Bot         ->  Ex SBot
+    (Name str)  ->  case someSymbolVal str of
+                      SomeSymbol n -> Ex (SName n)
+    (Conj p q)  ->  case promote p of
+                      Ex p' -> case promote q of
+                                 Ex q' -> Ex (SConj p' q')
+    (Disj p q)  ->  case promote p of
+                      Ex p' -> case promote q of
+                                 Ex q' -> Ex (SDisj p' q')
+    (Conf p)    ->  case promote p of Ex p' -> Ex (SConf p')
+    (Integ p)   ->  case promote p of Ex p' -> Ex (SInteg p')
+
+{- Bind runtime principal to type -}
+withPrin :: Prin -> (forall p . DPrin p -> a) -> a
+withPrin p f = case promote p of
+                 Ex p' -> f (p <=> p') 
+
 -- do not export <=> or UnsafeBindP. This ensures only withPrin can associate
 --  runtime principals wth singleton principal types.
-data DPrin p = UnsafeBindP { dyn :: Prin, st :: SPrin p } 
+data DPrin p = UnsafeAssoc { dyn :: Prin, st :: SPrin p } 
 dynamic = dyn
 static = st 
 (<=>) :: Prin -> SPrin p -> DPrin p
-p <=> sp = UnsafeBindP p sp
+p <=> sp = UnsafeAssoc p sp
 
 (⊤) :: DPrin (⊤)
 (⊤) = Top <=> STop
@@ -207,17 +209,6 @@ meet = (⊓)
         
 δ :: DPrin p -> DPrin (Δ p)
 δ p = eyeOf (dyn p) <=> SEye (st p)
-
-        
-{- Bind runtime principal to type -}
-withPrin :: Prin -> (forall p . DPrin p -> a) -> a
-withPrin p f = case promote p of
-                 Ex p' -> f (p <=> p') 
-
-{- TODO: move to IO -}
-type Console = (KName "console")
-console :: DPrin Console
-console = (Name "console") <=> (SName (Proxy :: Proxy "console"))
 
 {- Actsfor constraint -}
 {- Exported type operators for actsfor -}

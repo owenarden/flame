@@ -78,9 +78,14 @@ type (:<:) p q = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 infix 5 ≽,=>=,⊑,<:
 
 {- A type synonym for associating a pure and effectful labeled computation type -}
-type FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a = m pc (n l a)
+--type FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a = m pc (n l a)
+
+{- Actsfor constraint -}
+{- Exported type operators for actsfor -}
+class IMonad m (s :: k -> *) where
+  type (≼) (x :: k) (y :: k) :: Constraint
                                                                                                
-class FMonad (n :: KPrin -> * -> *) where
+class Labeled (n :: KPrin -> * -> *) where
   label     :: a -> n l a
   bind      :: (l ⊑ l') => n l a -> (a -> n l' b) -> n l' b
   unlabelPT :: n PT a -> a
@@ -90,49 +95,51 @@ class FMonad (n :: KPrin -> * -> *) where
   relabel a = bind a label
 
 {- A monad-like class for flow-limited authorization -}
-class FMonad n => FLAMonad (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
-  lift   :: n l a -> FLA m n pc l a
-  apply  :: (pc ⊑ pc') => FLA m n pc l a -> (n l a -> FLA m n pc' l' b) -> FLA m n pc' l' b
-  lbind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> FLA m n pc l' b) -> FLA m n pc' l' b
+class Labeled n => FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
+  lift   :: n l a -> m pc (n l a)
+  apply  :: (pc ⊑ pc') => m pc (n l a) -> (n l a -> m pc' (n l' b)) -> m pc' (n l' b)
+  lbind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> m pc (n l' b)) -> m pc' (n l' b)
   assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
-              (p :≽ q) -> ((p ≽ q) => FLA m n pc l a) -> FLA m n pc l a
-
-  protect :: a -> FLA m n pc l a
+              (p :≽ q) -> ((p ≽ q) => m pc (n l a)) -> m pc (n l a)
+  protect :: a -> m pc (n l a)
   protect = lift . label
 
-  reprotect :: (l ⊑ l', pc ⊑ pc') => FLA m n pc l a -> FLA m n pc' l' a 
-  reprotect x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
+  reprotect :: (l ⊑ l', pc ⊑ pc') => m pc (n l a) -> m pc' (n l' a) 
+  reprotect x = apply x $ \x' -> lbind x' (protect :: a -> m SU (n l' a))
 
-  use :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
+  use :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => m pc (n l a) -> (a -> m pc' (n l' b)) -> m pc' (n l' b)
   use x f = apply x $ \x' -> lbind x' f
 
-  (*>>=) :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l a -> (a -> FLA m n pc' l' b) -> FLA m n pc' l' b
+  (*>>=) :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => m pc (n l a) -> (a -> m pc' (n l' b)) -> m pc' (n l' b)
   (*>>=) = use
 
-  lfmap :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => (a -> b) -> FLA m n pc l a -> FLA m n pc' l' b
+  lfmap :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => (a -> b) -> m pc (n l a) -> m pc' (n l' b)
   lfmap f x = x *>>= (\y -> protect (f y))
 
-  ljoin  :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => FLA m n pc l (FLA m n pc' l' a) -> FLA m n pc' l' a
+  ljoin  :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => m pc (n l (m pc' (n l' a))) -> m pc' (n l' a)
   ljoin x = x *>>= id
 
-  (**>) :: FLA m n pc l a -> FLA m n pc l' b ->  FLA m n pc l' b 
+  (**>) :: m pc (n l a) -> m pc (n l' b) ->  m pc (n l' b) 
   (**>) a b = apply a $ const b 
  
   {- XXX: The below operations will become unecessary with a GLB solver -}
-  liftx :: SPrin pc -> n l a -> FLA m n pc l a
+  liftx :: SPrin pc -> n l a -> m pc (n l a)
   liftx pc = lift
 
-  protectx :: SPrin pc ->  a -> FLA m n pc l a
+  protectx :: SPrin pc ->  a -> m pc (n l a)
   protectx pc = protect
 
-  reprotectx :: (l ⊑ l', pc ⊑ pc') => SPrin pc' -> SPrin l' -> FLA m n pc l a -> FLA m n pc' l' a 
-  reprotectx  pc' l' x = apply x $ \x' -> lbind x' (protect :: a -> FLA m n SU l' a)
+  reprotectx :: (l ⊑ l', pc ⊑ pc') => SPrin pc' -> SPrin l' -> m pc (n l a) -> m pc' (n l' a) 
+  reprotectx  pc' l' x = apply x $ \x' -> lbind x' (protect :: a -> m SU (n l' a))
 
 infixl 4 **>
 
 {- A type for pure labeled computations -}
 data Lbl (l::KPrin) a where
-  MkLbl :: { unsafeRunLbl :: a } -> Lbl l a
+  UnsafeMkLbl :: { unsafeRunLbl :: a } -> Lbl l a
+-- both the constructor and destructor must be private:
+--   since either will unlabel a value
+--   (the constructor enables pattern matching)
 
 instance Functor (Lbl l) where
   fmap f action = bind action $ \a -> label $ f a 
@@ -146,14 +153,14 @@ instance Monad (Lbl l) where
   return = lbl_label
   (>>=)  = lbl_bind
 
-instance FMonad Lbl where
+instance Labeled Lbl where
   label = lbl_label
   bind = lbl_bind
   unlabelPT = lbl_unlabelPT 
   unlabelU = lbl_unlabelU
 
 lbl_label :: a -> Lbl l a
-lbl_label = MkLbl
+lbl_label = UnsafeMkLbl
 
 lbl_bind :: (l ⊑ l') => Lbl l a -> (a -> Lbl l' b) -> Lbl l' b    
 lbl_bind x f = f (unsafeRunLbl x)
@@ -184,7 +191,7 @@ ifc_assume :: (Monad e, pc ≽ (I q ∧ (∇) q), (∇) p ≽ (∇) q) =>
             (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
 ifc_assume pf m = unsafeAssume pf m
 
-instance Monad e => FLAMonad (CtlT e) Lbl where
+instance Monad e => FLA (CtlT e) Lbl where
   lift    = ifc_lift 
   lbind   = ifc_lbind
   apply   = ifc_apply

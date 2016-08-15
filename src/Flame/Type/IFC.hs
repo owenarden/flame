@@ -10,7 +10,7 @@
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
 module Flame.Type.IFC
-       ( FLAMonad(..), IFC, FMonad(..), Lbl, CtlT
+       ( FLA(..), IFC, Labeled(..), Lbl, CtlT
        , runIFC, runIFCx, runIFCxx
        , (:≽), (:=>=), (:⊑), (:<:)  -- Delegation types
        , Def(..), (≽), (=>=), (⊑), (<:)     -- Delegation constructors
