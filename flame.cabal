@@ -18,9 +18,9 @@ cabal-version:       >=1.10
 library
   exposed-modules:  Flame.Type.Solver, Flame.Type.Principals, Flame.Type.IFC, 
                     Flame.Type.TCB.IFC, Flame.Type.TCB.IFCPtr, Flame.Time
-                    Flame.Type.Assert, Flame.Data.Principals, Flame.IO, Flame.IFCRef
-
-                    GHC.Extra.Instances 
+                    Flame.Type.Assert, Flame.Data.Principals, Flame.IO, Flame.IFCRef, 
+                    GHC.Extra.Instances, Flame.Prelude
+--Control.RLMonad
   -- other-modules:       
   other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
                     RankNTypes, FlexibleInstances, FlexibleContexts, 
@@ -33,6 +33,7 @@ library
                     constraints,
                     reflection,
                     containers,
+                    transformers,
                     time,
                     ghc >= 7.10, 
                     ghc-tcplugins-extra,

@@ -8,6 +8,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
 module Flame.Type.TCB.IFC
@@ -17,6 +19,7 @@ import Data.Proxy (Proxy(..))
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
+--import Control.RLMonad
 
 import Flame.Type.Principals
 
@@ -77,14 +80,7 @@ type (:<:) p q = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 
 infix 5 ≽,=>=,⊑,<:
 
-{- A type synonym for associating a pure and effectful labeled computation type -}
---type FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a = m pc (n l a)
-
-{- Actsfor constraint -}
-{- Exported type operators for actsfor -}
-class IMonad m (s :: k -> *) where
-  type (≼) (x :: k) (y :: k) :: Constraint
-                                                                                               
+{- An indexed monad for information flow on pure computation -}
 class Labeled (n :: KPrin -> * -> *) where
   label     :: a -> n l a
   bind      :: (l ⊑ l') => n l a -> (a -> n l' b) -> n l' b
@@ -94,16 +90,19 @@ class Labeled (n :: KPrin -> * -> *) where
   relabel :: (l ⊑ l') => n l a -> n l' a
   relabel a = bind a label
 
-{- A monad-like class for flow-limited authorization -}
+{- A restricted, indexed monad for for flow-limited authorization -}
 class Labeled n => FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
   lift   :: n l a -> m pc (n l a)
   apply  :: (pc ⊑ pc') => m pc (n l a) -> (n l a -> m pc' (n l' b)) -> m pc' (n l' b)
   lbind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> m pc (n l' b)) -> m pc' (n l' b)
-  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
-              (p :≽ q) -> ((p ≽ q) => m pc (n l a)) -> m pc (n l a)
+
   protect :: a -> m pc (n l a)
   protect = lift . label
 
+  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
+              (p :≽ q) -> ((p ≽ q) => m pc (n l a)) -> m pc (n l a)
+  assume = unsafeAssume
+  
   reprotect :: (l ⊑ l', pc ⊑ pc') => m pc (n l a) -> m pc' (n l' a) 
   reprotect x = apply x $ \x' -> lbind x' (protect :: a -> m SU (n l' a))
 
@@ -119,8 +118,6 @@ class Labeled n => FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
   ljoin  :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => m pc (n l (m pc' (n l' a))) -> m pc' (n l' a)
   ljoin x = x *>>= id
 
-  (**>) :: m pc (n l a) -> m pc (n l' b) ->  m pc (n l' b) 
-  (**>) a b = apply a $ const b 
  
   {- XXX: The below operations will become unecessary with a GLB solver -}
   liftx :: SPrin pc -> n l a -> m pc (n l a)
@@ -134,6 +131,61 @@ class Labeled n => FLA (m :: KPrin -> * -> *) (n :: KPrin -> * -> *) where
 
 infixl 4 **>
 
+--instance Labeled n => RLFunctor n where
+--  type MayUse n (l :: KPrin) a (l' :: KPrin) b = l ⊑ l'
+--  fmap f action = bind action $ \a -> label $ f a 
+--
+--instance Labeled n => RLApplicative n where
+--  pure = label
+--  a <*> b  = bind a $ \f ->
+--              bind b $ \b' -> label $ f b'
+--
+--instance Labeled n => RLMonad n where
+--  return = label
+--  (>>=)  = bind
+
+--instance FLA m n => RLFunctor m where
+--  type Suitable m (n l a) = Labeled n
+--  type MayUse m pc (n l a) pc' (n l' b) = (pc ⊑ pc')
+--  fmap :: (pc ⊑ pc') => (n l a -> n l' b) -> m pc (n l a) -> m pc' (n l' b)
+--  fmap f action = apply action $ \a -> lift $ f a
+
+--
+--instance Labeled n => RLApplicative n where
+--  pure = label
+--  a <*> b  = bind a $ \f ->
+--              bind b $ \b' -> label $ f b'
+--
+--instance Labeled n => RLMonad n where
+--  return = label
+--  (>>=)  = bind
+
+--instance FLA m n => RIFunctor m where
+
+  
+
+--instance FLA m n => RIFunctor m where
+--  type Suitable m (pc,l) (n l a) = Labeled n
+--  fmap f action = lfmap
+
+--data instance Constraints (CtlT e pc) (n l a) = Labeled n => IsLabeled
+--instance Labeled n => Suitable (CtlT e pc) (n l a) where
+--   constraints = IsLabeled
+
+--
+--instance Labeled n => RIApplicative n where
+--  type (≤*) (x :: KPrin) (y :: KPrin) = x ⊑ y
+--  pure = label
+--  a <*> b  = bind a $ \f ->
+--              bind b $ \b' -> label $ f b'
+--
+--instance Labeled n => RIMonad n where
+--  return = label
+--  (>>=)  = bind
+
+{- A restricted, indexed monad for for flow-limited authorization -}
+  
+
 {- A type for pure labeled computations -}
 data Lbl (l::KPrin) a where
   UnsafeMkLbl :: { unsafeRunLbl :: a } -> Lbl l a
@@ -141,23 +193,23 @@ data Lbl (l::KPrin) a where
 --   since either will unlabel a value
 --   (the constructor enables pattern matching)
 
-instance Functor (Lbl l) where
-  fmap f action = bind action $ \a -> label $ f a 
-
-instance Applicative (Lbl l) where
-  pure     = label  
-  a <*> b  = bind a $ \f ->
-              bind b $ \b' -> label $ f b'
-
-instance Monad (Lbl l) where
-  return = lbl_label
-  (>>=)  = lbl_bind
-
 instance Labeled Lbl where
   label = lbl_label
   bind = lbl_bind
   unlabelPT = lbl_unlabelPT 
   unlabelU = lbl_unlabelU
+
+instance Labeled n => Functor (n l) where
+  fmap f action = bind action $ \a -> label $ f a 
+
+instance Labeled n => Applicative (n l) where
+  pure = label
+  a <*> b  = bind a $ \f ->
+              bind b $ \b' -> label $ f b'
+
+instance Labeled n => Monad (n l) where
+  return = label
+  (>>=) = bind
 
 lbl_label :: a -> Lbl l a
 lbl_label = UnsafeMkLbl
@@ -178,7 +230,7 @@ data CtlT e (pc::KPrin) a where
 type IFC e pc l a = CtlT e pc (Lbl l a)
 
 ifc_lift :: Monad e => Lbl l a -> IFC e pc l a
-ifc_lift  x = UnsafeIFC $ return x
+ifc_lift  x = UnsafeIFC $ Prelude.return x
 
 ifc_lbind :: (Monad e, l ⊑ l', l ⊑ pc) => Lbl l a -> (a -> IFC e pc l' b) -> IFC e pc' l' b
 ifc_lbind x f = UnsafeIFC $ runIFC $ f $ unsafeRunLbl x
@@ -187,15 +239,15 @@ ifc_apply :: (Monad e, pc ⊑ pc') => IFC e pc l a -> (Lbl l a -> IFC e pc' l' b
 ifc_apply x f = UnsafeIFC $ do a <- runIFC x
                                runIFC $ f a
 
-ifc_assume :: (Monad e, pc ≽ (I q ∧ (∇) q), (∇) p ≽ (∇) q) =>
-            (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
-ifc_assume pf m = unsafeAssume pf m
+--ifc_assume :: (Monad e, pc ≽ (I q ∧ (∇) q), (∇) p ≽ (∇) q) =>
+--            (p :≽ q) -> ((p ≽ q) => IFC e pc l a) -> IFC e pc l a
+--ifc_assume pf m = 
 
 instance Monad e => FLA (CtlT e) Lbl where
   lift    = ifc_lift 
   lbind   = ifc_lbind
   apply   = ifc_apply
-  assume  = ifc_assume
+--  assume  = ifc_assume
 
 {- XXX: The below operations will become unecessary with a GLB solver -}
 runIFCx :: Monad e => SPrin pc -> CtlT e pc a -> e a
