@@ -32,83 +32,83 @@ eqTTrans :: (p === q, q === r) => SPrin p -> SPrin q -> SPrin r -> ()
 eqTTrans p q r = assertEq p r
 
 eqTConjComm :: SPrin p -> SPrin q -> ()
-eqTConjComm p q = assertEq (p ∧ q) (q ∧ p) 
+eqTConjComm p q = assertEq (p *∧ q) (q *∧ p) 
 
 eqTDisjComm :: SPrin p -> SPrin q -> ()
-eqTDisjComm p q = assertEq (p ∨ q) (q ∨ p) 
+eqTDisjComm p q = assertEq (p *∨ q) (q *∨ p) 
 
 eqTConjAssoc :: SPrin p -> SPrin q -> SPrin r -> ()
-eqTConjAssoc p q r = assertEq ((p ∧ q) ∧ r) (p ∧ (q ∧ r))
+eqTConjAssoc p q r = assertEq ((p *∧ q) *∧ r) (p *∧ (q *∧ r))
 
 eqTDisjAssoc :: SPrin p -> SPrin q -> SPrin r -> ()
-eqTDisjAssoc p q r = assertEq ((p ∨ q) ∨ r) (p ∨ (q ∨ r))
+eqTDisjAssoc p q r = assertEq ((p *∨ q) *∨ r) (p *∨ (q *∨ r))
 
 eqTDisjAbsorb :: SPrin p -> SPrin q -> ()
-eqTDisjAbsorb p q = assertEq (p ∧ (p ∨ q)) p 
+eqTDisjAbsorb p q = assertEq (p *∧ (p *∨ q)) p 
                     
 eqTConjAbsorb :: SPrin p -> SPrin q -> ()
-eqTConjAbsorb p q = assertEq (p ∨ (p ∧ q)) p 
+eqTConjAbsorb p q = assertEq (p *∨ (p *∧ q)) p 
 
 eqTConjIdemp :: SPrin p -> ()
-eqTConjIdemp p = assertEq (p ∧ p) p 
+eqTConjIdemp p = assertEq (p *∧ p) p 
 
 eqTDisjIdemp :: SPrin p -> ()
-eqTDisjIdemp p = assertEq (p ∨ p) p 
+eqTDisjIdemp p = assertEq (p *∨ p) p 
 
 eqTConjIdent :: SPrin p -> ()
-eqTConjIdent p = assertEq (p ∧ pbot) p 
+eqTConjIdent p = assertEq (p *∧ SBot) p 
                  
 eqTDisjIdent :: SPrin p -> ()
-eqTDisjIdent p = assertEq (p ∨ ptop) p 
+eqTDisjIdent p = assertEq (p *∨ STop) p 
 
 eqTConjTop :: SPrin p -> ()
-eqTConjTop p = assertEq (p ∧ ptop) ptop 
+eqTConjTop p = assertEq (p *∧ STop) STop 
        
 eqTDisjBot :: SPrin p -> ()
-eqTDisjBot p = assertEq (p ∨ pbot) pbot
+eqTDisjBot p = assertEq (p *∨ SBot) SBot
 
 eqTConjDistDisj :: SPrin p -> SPrin q -> SPrin r -> ()
-eqTConjDistDisj p q r = assertEq (p ∧ (q ∨ r)) ((p ∧ q) ∨ (p ∧ r))
+eqTConjDistDisj p q r = assertEq (p *∧ (q *∨ r)) ((p *∧ q) *∨ (p *∧ r))
 
 eqTConjConf :: SPrin p -> SPrin q -> ()
-eqTConjConf p q = assertEq ((p ∧ q)^→) ((p^→) ∧ (q^→))
+eqTConjConf p q = assertEq ((p *∧ q)*→) ((p*→) *∧ (q*→))
 
 eqTConjInteg :: SPrin p -> SPrin q -> ()
-eqTConjInteg p q = assertEq ((p ∧ q)^←) ((p^←) ∧ (q^←))
+eqTConjInteg p q = assertEq ((p *∧ q)*←) ((p*←) *∧ (q*←))
 
 eqTDisjConf :: SPrin p -> SPrin q -> ()
-eqTDisjConf p q = assertEq ((p ∨ q)^→) ((p^→) ∨ (q^→))
+eqTDisjConf p q = assertEq ((p *∨ q)*→) ((p*→) *∨ (q*→))
 
 eqTDisjInteg :: SPrin p -> SPrin q -> ()
-eqTDisjInteg p q = assertEq ((p ∨ q)^←) ((p^←) ∨ (q^←))
+eqTDisjInteg p q = assertEq ((p *∨ q)*←) ((p*←) *∨ (q*←))
 
 eqTConfIdemp :: SPrin p -> ()
-eqTConfIdemp p = assertEq ((p^→)^→) (p^→)
+eqTConfIdemp p = assertEq ((p*→)*→) (p*→)
 
 eqTIntegIdemp :: SPrin p -> ()
-eqTIntegIdemp p = assertEq ((p^←)^←) (p^←)
+eqTIntegIdemp p = assertEq ((p*←)*←) (p*←)
 
 eqTConfInteg :: SPrin p -> ()
-eqTConfInteg p = assertEq ((p^→)^←) pbot
+eqTConfInteg p = assertEq ((p*→)*←) SBot
 
 eqTIntegConf :: SPrin p -> ()
-eqTIntegConf p = assertEq ((p^←)^→) pbot
+eqTIntegConf p = assertEq ((p*←)*→) SBot
 
 eqTConfDisjInteg :: SPrin p -> SPrin q -> ()
-eqTConfDisjInteg p q = assertEq ((p^→) ∨ (q^←)) pbot
+eqTConfDisjInteg p q = assertEq ((p*→) *∨ (q*←)) SBot
 
 eqTConfIntegBasis :: SPrin p -> ()
-eqTConfIntegBasis p = assertEq ((p^←) ∧ (p^→)) p
+eqTConfIntegBasis p = assertEq ((p*←) *∧ (p*→)) p
 
 eqTBotConf :: ()
-eqTBotConf = assertEq (pbot^→) pbot
+eqTBotConf = assertEq (SBot*→) SBot
 
 eqTBotInteg :: ()
-eqTBotInteg = assertEq (pbot^←) pbot
+eqTBotInteg = assertEq (SBot*←) SBot
 
 --assertCBT0 :: (I (C KBot) ≽ I (C KTop)) => ()
 --assertCBT0 = ()
---testCBT0 = withTrans ((pbot^→)^←) pbot ((ptop^→)^←) assertCBT0
+--testCBT0 = withTrans ((SBot*→)*←) SBot ((STop*→)*←) assertCBT0
 
 assertCBT1 :: (I (C KBot) ≽ KBot) => ()
 assertCBT1 = ()
@@ -135,16 +135,16 @@ testRCV = assertRCV
 --testITB = assertITB
 --
 --neg_flTConf ::  SPrin p -> ()
---neg_flTConf p = assertFlowsTo ((p^→) ∧ (SBot^←)) p
+--neg_flTConf p = assertFlowsTo ((p*→) *∧ (SBot*←)) p
 --
 --neg_flTConf2 ::  SPrin p -> SPrin q -> ()
---neg_flTConf2 p q = assertActsFor SBot (SConf q) --(p^→) 
+--neg_flTConf2 p q = assertActsFor SBot (SConf q) --(p*→) 
 --
 --neg_flTInteg ::  SPrin p -> SPrin q -> ()
---neg_flTInteg p q = assertActsFor (p^→) ((p^→) ∧ (q^←))
+--neg_flTInteg p q = assertActsFor (p*→) ((p*→) *∧ (q*←))
 --
 flTConfConjL :: SPrin p ->  SPrin q -> ()
-flTConfConjL p q = assertFlowsTo (p^→) ((p ∧ q)^→)  
+flTConfConjL p q = assertFlowsTo (p*→) ((p *∧ q)*→)  
 
 main :: IO ()
 main = print test1 --(test1 ++ test2 ++ (test3 STop)) 
