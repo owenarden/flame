@@ -96,20 +96,20 @@ class Labeled n => FLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) n wh
 
   apply  :: (pc ⊑ pc') => m n pc l a -> (n l a -> m n pc' l' b) -> m n pc' l' b
 
-  fbind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> m n pc l' b) -> m n pc' l' b
+  ebind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> m n pc l' b) -> m n pc' l' b
 
   protect :: a -> m n pc l a
   protect = lift . label
 
   use :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => m n pc l a -> (a -> m n pc' l' b) -> m n pc' l' b
-  use x f = apply x $ \x' -> fbind x' f
+  use x f = apply x $ \x' -> ebind x' f
 
   assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
               (p :≽ q) -> ((p ≽ q) => m n pc l a) -> m n pc l a
   assume = unsafeAssume
 
   reprotect :: (l ⊑ l', pc ⊑ pc') => m n pc l a -> m n pc' l' a 
-  reprotect x = apply x $ \x' -> fbind x' (protect :: a -> m n SU l' a)
+  reprotect x = apply x $ \x' -> ebind x' (protect :: a -> m n SU l' a)
   ffmap :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => (a -> b) -> m n pc l a -> m n pc' l' b
   ffmap f x = use x (\y -> protect (f y))
 
@@ -124,7 +124,7 @@ class Labeled n => FLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) n wh
   protectx pc = protect
 
   reprotectx :: (l ⊑ l', pc ⊑ pc') => SPrin pc' -> SPrin l' -> m n pc l a -> m n pc' l' a
-  reprotectx pc' l' x = apply x $ \x' -> fbind x' (protect :: a -> m n SU l' a)
+  reprotectx pc' l' x = apply x $ \x' -> ebind x' (protect :: a -> m n SU l' a)
 
 
 {- A type for pure labeled computations -}
@@ -175,8 +175,8 @@ type IFC e pc l a = CtlT e Lbl pc l a
 ifc_lift :: Monad e => Lbl l a -> IFC e pc l a
 ifc_lift  x = UnsafeIFC $ Prelude.return x
 
-ifc_fbind :: (Monad e, l ⊑ l', l ⊑ pc) => Lbl l a -> (a -> IFC e pc l' b) -> IFC e pc' l' b
-ifc_fbind x f = UnsafeIFC $ runIFC $ f $ unsafeRunLbl x
+ifc_ebind :: (Monad e, l ⊑ l', l ⊑ pc) => Lbl l a -> (a -> IFC e pc l' b) -> IFC e pc' l' b
+ifc_ebind x f = UnsafeIFC $ runIFC $ f $ unsafeRunLbl x
 
 ifc_apply :: (Monad e, pc ⊑ pc') => IFC e pc l a -> (Lbl l a -> IFC e pc' l' b) -> IFC e pc' l' b
 ifc_apply x f = UnsafeIFC $ do a <- runIFC x
@@ -184,7 +184,7 @@ ifc_apply x f = UnsafeIFC $ do a <- runIFC x
 
 instance Monad e => FLA (CtlT e) Lbl where
   lift    = ifc_lift 
-  fbind   = ifc_fbind
+  ebind   = ifc_ebind
   apply   = ifc_apply
 --  assume  = ifc_assume
 
