@@ -34,4 +34,9 @@ return = protect
          -> (a -> m n pc' l' b)
          -> m n pc' l' b
 (>>=) = use
+
+(>>) :: (FLA m n, pc ⊑ pc')
+         => m n pc l a
+         -> m n pc' l' b
+         -> m n pc' l' b
 m >> a = apply m $ \_ -> a

@@ -36,10 +36,11 @@ import Flame.Type.Principals
 -}
 class Pi del where
 
-{- Allow proofs to derive from dynamic relationships -}
 instance Reifies s (Def Pi a) => Pi (Lift Pi a s) where
 
-data Lift (p :: * -> Constraint) (a :: *) (s :: *) = Lift { lower :: a }
+{- Allow proofs to derive from dynamic relationships -}
+newtype Lift (p :: * -> Constraint) (a :: *) (s :: *) = Lift { lower :: a }
+
 
 class ReifiableConstraint p where
   data Def (p :: * -> Constraint) (a :: *) :: *
@@ -66,7 +67,7 @@ type (:⊑) p q  = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 type (:<:) p q = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 
 {- Infix operators for constructing authority evidence terms -}
-(≽) :: SPrin p -> SPrin q -> Def Pi (AFType p q)
+(≽) :: SPrin p -> SPrin q -> (p :≽ q)
 (≽) p q = Del p q
 
 (=>=) :: SPrin p -> SPrin q -> Def Pi (AFType p q)
@@ -125,7 +126,6 @@ class Labeled n => FLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) n wh
 
   reprotectx :: (l ⊑ l', pc ⊑ pc') => SPrin pc' -> SPrin l' -> m n pc l a -> m n pc' l' a
   reprotectx pc' l' x = apply x $ \x' -> ebind x' (protect :: a -> m n SU l' a)
-
 
 {- A type for pure labeled computations -}
 data Lbl (l::KPrin) a where

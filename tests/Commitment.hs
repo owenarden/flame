@@ -23,6 +23,5 @@ i_receive p q v = assume (p ≽ (q*←)) (reprotect v)
 --     p' = (st p)
 --     q' = (st q)
 
-
 i_open :: Monad e => SPrin p -> SPrin q -> IFC e ((∇) p) (p ∧ (I q)) a -> IFC e ((∇) p) ((I p) ∧ q) a
 i_open p q v = assume ((*∇) (q) ≽ (*∇) (p)) $ assume ((q*→) ≽ (p*→)) (reprotect v)

@@ -77,7 +77,7 @@ type Eye p    = KEye p
 type N s      = KName s
 
 type (/\) p q = KConj p q
-type (∧)  p q  = KConj p q
+type p ∧ q  = KConj p q
 infixl 7 /\
 infixl 7 ∧
 
@@ -90,9 +90,9 @@ type (Δ) p = Eye p
 
 -- TODO: convert flow join/meet to type families so that
 --       resulting types are more normalized
-type (⊔) p q  = ((C p) ∧ (C q)) ∧ ((I p) ∨ (I q))
+type (⊔) p q  = (C p ∧ C q) ∧ (I p ∨ I q)
 infixl 6 ⊔
-type (⊓) p q  = ((C p) ∨ (C q)) ∧ ((I p) ∧ (I q))
+type (⊓) p q  = (C p ∨ C q) ∧ (I p ∧ I q)
 infixl 6 ⊓
 
 type (⊤) = KTop

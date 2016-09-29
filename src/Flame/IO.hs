@@ -19,6 +19,8 @@ mkStderr err = NewHdl SIO.stderr
 mkStdin  :: SPrin in_ -> IFCHandle in_
 mkStdin in_ = NewHdl SIO.stdin
 
+mkChannel :: SPrin lbl -> (IFCHandle input, IFCHandle output)
+
 hFlush :: (pc ⊑ l) => IFCHandle l -> IFC IO pc SU ()
 hFlush h = UnsafeIFC $ do _ <- SIO.hFlush (unsafeUnwrap h)
                           return $ label ()
