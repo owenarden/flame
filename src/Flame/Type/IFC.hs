@@ -18,3 +18,4 @@ module Flame.Type.IFC
   where
 
 import Flame.Type.TCB.IFC
+import Flame.Type.TCB.Assume

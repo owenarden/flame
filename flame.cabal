@@ -17,7 +17,10 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:  Flame.Type.Solver, Flame.Type.Principals, Flame.Type.IFC, 
-                    Flame.Type.TCB.IFC, Flame.Type.TCB.IFCPtr, Flame.Time
+                    Flame.Type.TCB.IFC, 
+                    Flame.Type.TCB.NMIFC, 
+                    Flame.Type.TCB.Assume, 
+                    Flame.Type.TCB.IFCPtr, Flame.Time
                     Flame.Type.Assert, Flame.Data.Principals, Flame.IO, Flame.IFCRef, 
                     GHC.Extra.Instances, Flame.Prelude
 --Control.RLMonad
