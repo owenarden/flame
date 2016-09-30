@@ -27,14 +27,21 @@ import Flame.Type.TCB.IFC (Labeled(..), Lbl(..))
 class Labeled n => NMFLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> KPrin -> * -> *) n where
   lift :: n l a -> m n β pc l a
 
-  apply :: (pc ⊑ pc', β' ⊑ β, pc ⊑ β') => m n β pc l a -> (n l a -> m n β' pc' l' b) -> m n β pc' l' b
+--  apply :: (pc ⊑ pc', β' ⊑ β, pc ⊑ β') => m n β pc l a -> (n l a -> m n β' pc' l' b) -> m n β pc' l' b
+  apply  :: (pc ⊑ pc', β' ⊑ β) => m n β pc l a -> (n l a -> m n β' pc' l' b) -> m n β' pc' l' b
 
-  ebind :: (l ⊑ l', l ⊑ pc', l ⊑ β') => n l a -> (a -> m n β' pc' l' b) -> m n β pc l' b
+--  ebind :: (l ⊑ l', l ⊑ pc', l ⊑ β') => n l a -> (a -> m n β' pc' l' b) -> m n β pc l' b
+  ebind  :: (l ⊑ l', l ⊑ pc, l ⊑ β, β ⊑ β') => n l a -> (a -> m n β pc l' b) -> m n β' pc' l' b
 
-  use :: (pc ⊑ pc', β' ⊑ β, pc ⊑ β', l ⊑ l', l ⊑ pc', l ⊑ β') => m n β pc l a -> (a -> m n β' pc' l' b) -> m n β' pc l' b
+--  use :: (pc ⊑ pc', β' ⊑ β, pc ⊑ β', l ⊑ l', l ⊑ pc', l ⊑ β') => m n β pc l a -> (a -> m n β' pc' l' b) -> m n β' pc l' b
+  use :: (l ⊑ l', (pc ⊔ l) ⊑ pc', l ⊑ β', β' ⊑ β) => m n β pc l a -> (a -> m n β' pc' l' b) -> m n β' pc' l' b
+  use x f = apply x $ \x' -> ebind x' f
 
   protect :: a -> m n β pc l a
   protect = lift . label
+
+  protectx :: SPrin β -> SPrin pc ->  a -> m n β pc l a
+  protectx b pc = protect
   
   iassume :: (pc ⊑ ((I q) ∧ Δ p), Δ p ⊑ β) =>
               (I p :≽ I q) -> ((I p ≽ I q) => m n β pc l a) -> m n β pc l a
@@ -44,8 +51,8 @@ class Labeled n => NMFLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> KPrin -> *
               (C p :≽ C q) -> ((C p ≽ C q) => m n β pc l a) -> m n β pc l a
   cassume = unsafeAssume
 
-  reprotect :: (l ⊑ l', pc ⊑ pc', β' ⊑ β) => m n β pc l a -> m n β' pc' l' a 
-  reprotect x = apply x $ \x' -> ebind x' (protect :: a -> m n SU SU l' a)
+  reprotect :: (l ⊑ l', pc ⊑ pc', l ⊑ β) => SPrin β -> m n β pc l a -> m n β pc' l' a 
+  reprotect b x = apply x $ \x' -> ebind x' (protectx b secretUntrusted) 
 
   --ffmap :: (l ⊑ l', (pc ⊔ l) ⊑ pc', (pc ⊔ l) ⊑ β', β' ⊑ β) => (a -> b) -> m n β pc l a -> m n β' pc' l' b
   --ffmap f x = use x (\y -> protect (f y))
@@ -57,8 +64,6 @@ class Labeled n => NMFLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> KPrin -> *
   --liftx :: SPrin pc -> n l a -> m n β pc l a
   --liftx pc = lift
   --
-  --protectx :: SPrin pc ->  a -> m n β pc l a
-  --protectx pc = protect
   --
   --reprotectx :: (l ⊑ l', pc ⊑ pc', β' ⊑ β) => SPrin pc' -> SPrin l' -> m n β pc l a -> m n β' pc' l' a
   --reprotectx pc' l' = reprotect

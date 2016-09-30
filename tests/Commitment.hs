@@ -19,22 +19,29 @@ bad_receive p q v = assume (p ≽ (q*←)) (M.reprotect v)
 open :: FLA m n => SPrin p -> SPrin q -> m n ((∇) p) (p ∧ (I q)) a -> m n ((∇) p) ((I p) ∧ q) a
 open p q v = assume ((*∇) (q) ≽ (*∇) (p)) $ assume ((q*→) ≽ (p*→)) (M.reprotect v)
 
---nm_commit :: (NMFLA m n, Δ p ⊑ β) => SPrin p -> m n β (I p) (C p) a -> m n β (I p) p a
---nm_commit p v = iassume ((SBot*←) ≽ (p*←)) (NM.reprotect v)
+nm_commit :: (NMFLA m n, p ⊑ Δ p) =>
+             SPrin p
+             -> m n (Δ p) (I p) (C p) a
+             -> m n (Δ p) (I p) p a
+nm_commit p v = iassume ((SBot*←) ≽ (p*←)) (NM.reprotect (SEye p) v)
 
-nm_receive :: (NMFLA m n) => SPrin p -> SPrin q -> m n (Δ p) (I q) p a -> m n (Δ p) (I q) (p ∧ (I q)) a
-nm_receive p q v = iassume ((p*←) ≽ (q*←)) (NM.reprotect v)
+nm_receive :: (NMFLA m n, p ⊑ Δ p) =>
+              SPrin p
+              -> SPrin q
+              -> m n (Δ p) (I q) p a -> m n (Δ p) (I q) (p ∧ (I q)) a
+nm_receive p q v = iassume ((p*←) ≽ (q*←)) (NM.reprotect (SEye p) v)
 
-nm_badreceive :: (NMFLA m n) => SPrin p -> SPrin q -> m n (Δ p) (I q) (p ∧ C q) a -> m n (Δ p) (I q) (p ∧ q) a
-nm_badreceive p q v = iassume ((p*←) ≽ (q*←)) (NM.reprotect v)
+nm_badreceive :: (NMFLA m n, p ⊑ Δ p) =>
+                 SPrin p
+                 -> SPrin q
+                 -> m n (Δ p) (I q) (p ∧ C q) a
+                 -> m n (Δ p) (I q) (p ∧ q) a
+nm_badreceive p q v = iassume ((p*←) ≽ (q*←)) (NM.reprotect (SEye p) v)
 
---nm_open :: NMFLA m n => SPrin p -> SPrin q -> m n β ((∇) p) (p ∧ (I q)) a -> m n β ((∇) p) ((I p) ∧ q) a
---nm_open p q v = iassume ((*∇) (q) ≽ (*∇) (p)) $ cassume ((q*→) ≽ (p*→)) (NM.reprotect v)
-
---i_receive :: Monad e => SPrin p -> SPrin q -> IFC e (I q) p a -> IFC e (I q) (p ∧ (I q)) a
-
--- i_receive2 :: Monad e => SPrin p -> SPrin q -> IFC e (I q) p a -> IFC e (I q) (p ∧ (I q)) a
--- i_receive2 p q v = apply v $ \x' -> assume (p ≽ (q^←)) $ lbind x' (protectx (((⊤)^→) ∧ ((⊥)^←)) (p' ∧ (q'^←)))
---   where
---     p' = (st p)
---     q' = (st q)
+nm_open :: NMFLA m n =>
+           SPrin p
+           -> SPrin q
+           -> m n (C q) ((∇) p) (p ∧ (I q)) a
+           -> m n (C q) ((∇) p) ((I p) ∧ q) a
+nm_open p q v = iassume ((((*∇) (q))*←) ≽ (((*∇) (p))*←)) $
+                 cassume ((q*→) ≽ (p*→)) (NM.reprotect (q*→) v)

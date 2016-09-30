@@ -25,11 +25,11 @@ library
                     Flame.IFCRef, 
                     Flame.Type.IFC, 
                     Flame.Type.TCB.IFC, 
-                    Flame.Type.TCB.NMIFC, 
                     Flame.Type.TCB.Assume, 
                     Flame.Type.TCB.IFCPtr, 
                     Flame.Time,
-                    Flame.Prelude
+                    Flame.Prelude,
+                    Flame.Type.TCB.NMIFC
   -- other-modules:       
   other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
                     RankNTypes, FlexibleInstances, FlexibleContexts, 

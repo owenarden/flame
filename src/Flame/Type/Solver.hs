@@ -340,7 +340,7 @@ voiceOf (N conf _) = N (J [M [B]]) (wrapVars conf)
     wrapVars' (M bs) = M (map wrapVars'' bs)
     wrapVars'' (V v) = VarVoice v 
     wrapVars'' (VarVoice v) = VarVoice v 
-    wrapVars'' (VarEye v) = VarVoice v
+    wrapVars'' (VarEye v) = (V v)
     wrapVars'' p = p
   
 eyeOf :: CoreNorm -> CoreNorm
@@ -349,7 +349,7 @@ eyeOf (N _ integ) = N (wrapVars integ) (J [M [B]])
     wrapVars (J ms) = J (map wrapVars' ms)
     wrapVars' (M bs) = M (map wrapVars'' bs)
     wrapVars'' (V v) = VarEye v 
-    wrapVars'' (VarVoice v) = VarEye v 
+    wrapVars'' (VarVoice v) = (V v) 
     wrapVars'' (VarEye v) = VarEye v 
     wrapVars'' p = p
 
