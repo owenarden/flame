@@ -8,7 +8,6 @@ module Flame.Type.Assert
 where
   
 import Flame.Type.Principals
-import Flame.Type.IFC
 assertEq :: (l === l') => SPrin l -> SPrin l' -> ()
 assertEq l l' = ()
 
