@@ -55,6 +55,10 @@ class Labeled n => NMFLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> KPrin -> *
               (C p :≽ C q) -> ((C p ≽ C q) => m n β pc l a) -> m n β pc l a
   cassume = unsafeAssume
 
+  eassume :: (pc ≽ (∇) (Δ q), (∇) (Δ p) ≽ (∇) (Δ q) {-, (∇) q ≽ β-}) => 
+              (Δ p :≽ Δ q) -> ((Δ p ≽ Δ q) => m n β pc l a) -> m n β pc l a
+  eassume = unsafeAssume
+
   reprotect :: (l ⊑ l', pc ⊑ pc', l ⊑ β) => SPrin β -> m n β pc l a -> m n β pc' l' a 
   reprotect b x = apply x $ \x' -> ebind x' (protectx b secretUntrusted) 
 
