@@ -43,11 +43,15 @@ class Labeled n => NMFLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> KPrin -> *
   protectx :: SPrin β -> SPrin pc ->  a -> m n β pc l a
   protectx b pc = protect
   
-  iassume :: (pc ⊑ ((I q) ∧ Δ p), Δ p ⊑ β) =>
+  iassume :: (pc ⊑ ((I q) ∧ Δ p), β ⊑ Δ p) =>
               (I p :≽ I q) -> ((I p ≽ I q) => m n β pc l a) -> m n β pc l a
   iassume = unsafeAssume
 
-  cassume :: (pc ≽ (∇) q, (∇) p ≽ (∇) q, (∇) q ⊑ β) =>
+  vassume :: (pc ⊑ ((∇) q ∧ (Δ ((∇) p))), β ⊑ (Δ ((∇) p))) =>
+              ((∇) p :≽ (∇) q) -> (((∇) p ≽ (∇) q) => m n β pc l a) -> m n β pc l a
+  vassume = unsafeAssume
+
+  cassume :: (pc ≽ (∇) q, (∇) p ≽ (∇) q {-, (∇) q ≽ β-}) => 
               (C p :≽ C q) -> ((C p ≽ C q) => m n β pc l a) -> m n β pc l a
   cassume = unsafeAssume
 
