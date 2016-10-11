@@ -192,3 +192,21 @@ nm_thirteen :: (NMFLA m n, q ⊑ r) =>
            -> m n (C q) pc (I p ∧ q) a
            -> m n (C q) pc (I p ∧ r) a
 nm_thirteen p q r v = NM.reprotect (q*→) v
+
+
+
+
+--nm_four :: (NMFLA m n, q ⊑ Δ q) => SPrin p -> SPrin q
+--       -> m n (Δ ((∇) q)) ((∇) p) (C (p ∧ q) ∧ I q) a
+--       -> m n (Δ ((∇) q)) ((∇) p) q a
+--nm_receive :: (NMFLA m n, p ⊑ Δ p) =>
+--              SPrin p
+--              -> SPrin q
+--              -> m n (Δ p) (I q) p a
+--              -> m n (Δ p) (I q) (p ∧ (I q)) a
+--nm_six :: (NMFLA m n, p ⊑ Δ p) =>
+--                 SPrin p
+--                 -> SPrin q
+--                 -> m n (Δ p) (I q) (p ∧ C q) a
+--                 -> m n (Δ p) (I q) (p ∧ q) a
+--nm_six p q v = iassume ((p*←) ≽ (q*←)) (NM.reprotect (SEye p) v)

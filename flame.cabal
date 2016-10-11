@@ -22,6 +22,7 @@ library
                     Flame.Data.Principals,
                     GHC.Extra.Instances,
                     Flame.IO, 
+                    Flame.NMIO, 
                     Flame.IFCRef, 
                     Flame.Type.IFC, 
                     Flame.Type.TCB.IFC, 
