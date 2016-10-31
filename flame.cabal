@@ -24,6 +24,7 @@ library
                     Flame.IO, 
                     Flame.NMIO, 
                     Flame.IFCRef, 
+                    Flame.NMIFCRef, 
                     Flame.Type.IFC, 
                     Flame.Type.TCB.IFC, 
                     Flame.Type.TCB.Assume, 
