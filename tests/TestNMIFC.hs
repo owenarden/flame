@@ -53,12 +53,14 @@ four :: FLA m n => SPrin p -> SPrin q
 four p q v = assume ((*∇) (q) ≽ (*∇) (p)) $
                 assume ((q*→) ≽ (p*→)) (M.reprotect v)
 
-{- #4 (allowed) google doc says this is insecure -}
---nm_four :: (NMFLA m n, q ⊑ Δ q) => SPrin p -> SPrin q
---       -> m n (Δ ((∇) q) ∧ ((∇) p)) ((∇) p) (C (p ∧ q) ∧ I q) a
---       -> m n (Δ ((∇) q) ∧ ((∇) p)) ((∇) p) q a
---nm_four p q v = vassume ((*∇) (q) ≽ ((*∇) (p))) $
---                  cassume ((q*→) ≽ (p*→)) (NM.reprotect (SEye (SVoice q) *∧ ((*∇) p)) v)
+{- #4 (allowed) google doc says this is insecure 
+ -   only types if p and q are primitive..
+ - -}
+nm_four :: (NMFLA m n, q ⊑ Δ q, p ~ N p', q ~ N q') => SPrin p -> SPrin q
+       -> m n (Δ ((∇) q) ∧ I q) ((∇) p) (C (p ∧ q) ∧ I q) a
+       -> m n (Δ ((∇) q) ∧ I q) ((∇) p) q a
+nm_four p q v = vassume ((*∇) (q) ≽ ((*∇) (p))) $
+                  cassume ((q*→) ≽ (p*→)) (NM.reprotect (SEye (SVoice q) *∧ (q*←)) v)
 
 five :: FLA m n => SPrin p 
        -> m n (I p) (C p) a
