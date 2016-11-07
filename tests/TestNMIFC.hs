@@ -42,10 +42,10 @@ three p q v = assume ((*∇) (p) ≽ (*∇) (q)) $
 
 {- #3 -}
 nm_three :: (NMFLA m n, p ~ N p', q ~ N q') => SPrin p -> SPrin q
-       -> m n (Δ ((∇) p)) ((∇) q) (C (p ∧ q) ∧ I q) a
-       -> m n (Δ ((∇) p)) ((∇) q) (C p ∧ I q) a
+       -> m n (Δ ((∇) p) ∧ I q) ((∇) q) (C (p ∧ q) ∧ I q) a
+       -> m n (Δ ((∇) p) ∧ I q) ((∇) q) (C p ∧ I q) a
 nm_three p q v = vassume ((*∇) (p) ≽ ((*∇) (q))) $
-                  cassume ((p*→) ≽ (q*→)) (NM.reprotect (SEye (SVoice p)) v)
+                  cassume ((p*→) ≽ (q*→)) (NM.reprotect (SEye (SVoice p) *∧ (q*←)) v)
 
 four :: FLA m n => SPrin p -> SPrin q
        -> m n ((∇) p) (C (p ∧ q) ∧ (I q)) a
@@ -54,11 +54,11 @@ four p q v = assume ((*∇) (q) ≽ (*∇) (p)) $
                 assume ((q*→) ≽ (p*→)) (M.reprotect v)
 
 {- #4 (allowed) google doc says this is insecure -}
-nm_four :: (NMFLA m n, q ⊑ Δ q) => SPrin p -> SPrin q
-       -> m n (Δ ((∇) q)) ((∇) p) (C (p ∧ q) ∧ I q) a
-       -> m n (Δ ((∇) q)) ((∇) p) q a
-nm_four p q v = vassume ((*∇) (q) ≽ ((*∇) (p))) $
-                  cassume ((q*→) ≽ (p*→)) (NM.reprotect (SEye (SVoice q)) v)
+--nm_four :: (NMFLA m n, q ⊑ Δ q) => SPrin p -> SPrin q
+--       -> m n (Δ ((∇) q) ∧ ((∇) p)) ((∇) p) (C (p ∧ q) ∧ I q) a
+--       -> m n (Δ ((∇) q) ∧ ((∇) p)) ((∇) p) q a
+--nm_four p q v = vassume ((*∇) (q) ≽ ((*∇) (p))) $
+--                  cassume ((q*→) ≽ (p*→)) (NM.reprotect (SEye (SVoice q) *∧ ((*∇) p)) v)
 
 five :: FLA m n => SPrin p 
        -> m n (I p) (C p) a
@@ -136,13 +136,14 @@ nm_eight p q v = iassume ((q*←) ≽ (p*←)) (NM.reprotect (SEye q) v)
 ten :: FLA m n => SPrin p -> SPrin q -> m n ((∇) p) (p ∧ (I q)) a -> m n ((∇) p) ((I p) ∧ q) a
 ten p q v = assume ((*∇) (q) ≽ (*∇) (p)) $ assume ((q*→) ≽ (p*→)) (M.reprotect v)
 
-nm_ten :: NMFLA m n =>
+nm_ten :: (NMFLA m n, p ~ N p', q ~ N q') =>
            SPrin p
            -> SPrin q
-           -> m n (C q) ((∇) p) (p ∧ (I q)) a
-           -> m n (C q) ((∇) p) ((I p) ∧ q) a
-nm_ten p q v = iassume ((((*∇) (q))*←) ≽ (((*∇) (p))*←)) $
-                 cassume ((q*→) ≽ (p*→)) (NM.reprotect (q*→) v)
+           -> m n (C (p ∨ q) ∧ I p ∧ ((∇) q)) ((∇) p) (p ∧ (I q)) a
+           -> m n (C (p ∨ q) ∧ I p ∧ ((∇) q)) ((∇) p) ((I p) ∧ q) a
+nm_ten p q v = vassume (((*∇) (q)) ≽ ((*∇) p)) $ 
+                 cassume ((q*→) ≽ (p*→)) 
+                  (NM.reprotect (((p *∨ q)*→) *∧ (p*←) *∧ (*∇) q) v)
 
 {- #11 -}
 eleven :: (FLA m n, r ≽ q) =>
@@ -152,14 +153,16 @@ eleven :: (FLA m n, r ≽ q) =>
           -> m n ((∇) p) (p ∧ (I q)) a
           -> m n ((∇) p) ((I p) ∧ (I q) ∧ (C r)) a
 eleven p q r v = assume ((*∇) (q) ≽ (*∇) (p)) $ assume ((q*→) ≽ (p*→)) (M.reprotect v)
-nm_eleven :: (NMFLA m n, r ≽ q) =>
+
+--Broken by cassume integrity constraint                                                                 
+nm_eleven :: (NMFLA m n, r ≽ q, p ~ N p', q ~ N q', r ~ N r') =>
            SPrin p
            -> SPrin q
            -> SPrin r
-           -> m n (C q) ((∇) p) (p ∧ (I q)) a
-           -> m n (C q) ((∇) p) ((I p) ∧ (I q) ∧ (C r)) a
+           -> m n (C q ∧ I p ∧ I q) ((∇) p) (p ∧ (I q)) a
+           -> m n (C q ∧ I p ∧ I q) ((∇) p) ((I p) ∧ (I q) ∧ (C r)) a
 nm_eleven p q r v = iassume ((((*∇) (q))*←) ≽ (((*∇) (p))*←)) $
-                 cassume ((q*→) ≽ (p*→)) (NM.reprotect (q*→) v)
+                 cassume ((q*→) ≽ (p*→)) (NM.reprotect ((q*→) *∧ (p*←) *∧ (q*←)) v)
 
 {- #12 -}
 twelve :: (FLA m n, r ≽ q) =>

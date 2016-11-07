@@ -30,7 +30,9 @@ library
                     Flame.Type.TCB.Assume, 
                     Flame.Type.TCB.IFCPtr, 
                     Flame.Time,
+                    Flame.NMTime,
                     Flame.Prelude,
+                    Flame.NMPrelude,
                     Flame.Type.TCB.NMIFC
   -- other-modules:       
   other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
