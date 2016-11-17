@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeOperators, PostfixOperators #-}
 {-# LANGUAGE RebindableSyntax #-}
 {-# LANGUAGE DataKinds #-}
-{-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver #-}
 module IFCMain where
 
 import Flame.Prelude

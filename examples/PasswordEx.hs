@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeOperators, PostfixOperators #-}
 {-# LANGUAGE DataKinds #-}
-{-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 import Prelude hiding (print, putStr, putStrLn, getLine)
 import Data.List

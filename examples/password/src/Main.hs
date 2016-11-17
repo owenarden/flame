@@ -1,5 +1,5 @@
 {-# LANGUAGE PostfixOperators #-}
-{-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver #-}
 module Main where
 
 import Flame.Data.Principals
