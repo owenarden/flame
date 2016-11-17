@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
-{-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.Time
        ( getCurrentTime
