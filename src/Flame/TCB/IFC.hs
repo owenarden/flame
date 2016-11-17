@@ -12,7 +12,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.Type.TCB.IFC
+module Flame.TCB.IFC
   where
 
 import Data.Proxy (Proxy(..))
@@ -20,8 +20,8 @@ import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
 
-import Flame.Type.Principals
-import Flame.Type.TCB.Assume
+import Flame.Principals
+import Flame.TCB.Assume
 
 {- An indexed monad for information flow on pure computation -}
 class Labeled (n :: KPrin -> * -> *) where

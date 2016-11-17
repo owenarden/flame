@@ -3,13 +3,13 @@
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.NMIO
+module Flame.Runtime.NMIO
 where
   
-import Flame.Type.Principals
-import Flame.Type.TCB.NMIFC 
+import Flame.Principals
+import Flame.TCB.NMIFC 
 import qualified System.IO as SIO
-import Flame.Type.TCB.IFC (Labeled(..), Lbl(..))
+import Flame.TCB.IFC (Labeled(..), Lbl(..))
 
 data NMIFCHandle (l::KPrin) = NewHdl { unsafeUnwrap :: SIO.Handle }
 

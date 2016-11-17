@@ -3,12 +3,12 @@
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.NMIFCRef
+module Flame.Runtime.NMIFCRef
 where
 
-import Flame.Type.Principals
-import Flame.Type.TCB.IFC 
-import Flame.Type.TCB.NMIFC 
+import Flame.Principals
+import Flame.TCB.IFC 
+import Flame.TCB.NMIFC 
 import Data.IORef
 
 data NMIFCRef (l::KPrin) a = NMIFCRef { unsafeUnwrap :: IORef a}

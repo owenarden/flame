@@ -4,10 +4,10 @@
 {-# LANGUAGE PostfixOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
-module Flame.Type.Assert
+module Flame.Assert
 where
   
-import Flame.Type.Principals
+import Flame.Principals
 assertEq :: (l === l') => SPrin l -> SPrin l' -> ()
 assertEq l l' = ()
 

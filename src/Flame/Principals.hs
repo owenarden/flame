@@ -11,7 +11,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
-module Flame.Type.Principals
+module Flame.Principals
        ( KPrin (..)
        , SPrin (..)
        , C, I, type (^->), type (^→), type (^<-), type (^←)
@@ -36,7 +36,7 @@ import Data.Proxy (Proxy(..))
 import Data.Type.Bool
 import Data.Data
 
-import Flame.Data.Principals
+import Flame.Runtime.Principals
 
 {- The principal kind -}
 data KPrin =

@@ -9,7 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.Type.IFC
+module Flame.IFC
        ( FLA(..), IFC, Labeled(..), Lbl, CtlT
        , runIFC, runIFCx, runIFCxx
        , (:≽), (:=>=), (:⊑), (:<:)  -- Delegation types
@@ -17,5 +17,5 @@ module Flame.Type.IFC
        )
   where
 
-import Flame.Type.TCB.IFC
-import Flame.Type.TCB.Assume
+import Flame.TCB.IFC
+import Flame.TCB.Assume

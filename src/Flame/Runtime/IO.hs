@@ -3,11 +3,11 @@
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.IO
+module Flame.Runtime.IO
 where
   
-import Flame.Type.Principals
-import Flame.Type.TCB.IFC 
+import Flame.Principals
+import Flame.TCB.IFC 
 import qualified System.IO as SIO
 
 data IFCHandle (l::KPrin) = NewHdl { unsafeUnwrap :: SIO.Handle }

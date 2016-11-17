@@ -3,11 +3,11 @@
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.IFCRef
+module Flame.Runtime.IFCRef
 where
 
-import Flame.Type.Principals
-import Flame.Type.TCB.IFC 
+import Flame.Principals
+import Flame.TCB.IFC 
 import Data.IORef
 
 data IFCRef (l::KPrin) a = IFCRef { unsafeUnwrap :: IORef a}

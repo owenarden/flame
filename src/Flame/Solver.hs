@@ -4,7 +4,7 @@
 
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module Flame.Type.Solver
+module Flame.Solver
   ( plugin )
 where
 
@@ -275,7 +275,7 @@ lookupFlameRec = do
     ,  integClosure = []
     }
   where
-    flameModule  = mkModuleName "Flame.Type.Principals"
+    flameModule  = mkModuleName "Flame.Principals"
     flamePackage = fsLit "flame"
 
 -- | 'Norm' with 'TyVar' variables

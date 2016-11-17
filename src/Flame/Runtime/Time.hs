@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.Time
+module Flame.Runtime.Time
        ( getCurrentTime
        , getCurrentTimex
        , module Data.Time
@@ -11,8 +11,8 @@ module Flame.Time
 where
 import qualified Data.Time as T
 import Data.Time hiding (getCurrentTime)
-import Flame.Type.Principals
-import Flame.Type.TCB.IFC 
+import Flame.Principals
+import Flame.TCB.IFC 
 
 {- | Get the current UTC time from the system clock. -}
 getCurrentTime :: IFC IO pc PT UTCTime

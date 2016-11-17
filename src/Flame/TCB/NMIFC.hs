@@ -12,7 +12,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.Type.TCB.NMIFC
+module Flame.TCB.NMIFC
   where
 
 import Data.Proxy (Proxy(..))
@@ -20,9 +20,9 @@ import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
 
-import Flame.Type.Principals
-import Flame.Type.TCB.Assume
-import Flame.Type.TCB.IFC (Labeled(..), Lbl(..))
+import Flame.Principals
+import Flame.TCB.Assume
+import Flame.TCB.IFC (Labeled(..), Lbl(..))
 
 class Labeled n => NMFLA (m :: (KPrin -> * -> *) -> KPrin -> KPrin -> KPrin -> * -> *) n where
   lift :: n l a -> m n β pc l a

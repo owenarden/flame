@@ -2,7 +2,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE PostfixOperators #-}
 
-module Flame.Data.Principals
+module Flame.Runtime.Principals
        ( Prin(..)
        , ActsForProof(..)
        , DelClosure

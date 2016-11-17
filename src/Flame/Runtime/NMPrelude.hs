@@ -3,21 +3,21 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
-module Flame.NMPrelude
+module Flame.Runtime.NMPrelude
   ( 
     module Prelude
-  , module Flame.Type.Principals
-  , module Flame.Data.Principals
-  , module Flame.Type.TCB.NMIFC
-  , module Flame.NMIO
+  , module Flame.Principals
+  , module Flame.Runtime.Principals
+  , module Flame.Runtime.NMIO
+  , module Flame.TCB.NMIFC
   , return, (>>=), (>>), ifThenElse
   )
  where
 
-import Flame.Type.Principals
-import Flame.Data.Principals
-import Flame.NMIO
-import Flame.Type.TCB.NMIFC 
+import Flame.Principals
+import Flame.Runtime.Principals
+import Flame.Runtime.NMIO
+import Flame.TCB.NMIFC 
 
 import Prelude hiding ( return, (>>=), (>>)
                       , print, putStr, putStrLn, getLine)

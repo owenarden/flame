@@ -3,21 +3,21 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
-module Flame.Prelude
+module Flame.Runtime.Prelude
   ( 
     module Prelude
-  , module Flame.Type.Principals
-  , module Flame.Data.Principals
-  , module Flame.Type.IFC
-  , module Flame.IO
+  , module Flame.Principals
+  , module Flame.IFC
+  , module Flame.Runtime.Principals
+  , module Flame.Runtime.IO
   , return, (>>=), (>>), ifThenElse
   )
  where
 
-import Flame.Type.Principals
-import Flame.Data.Principals
-import Flame.IO
-import Flame.Type.IFC 
+import Flame.Principals
+import Flame.IFC 
+import Flame.Runtime.Principals
+import Flame.Runtime.IO
 
 import Prelude hiding ( return, (>>=), (>>)
                       , print, putStr, putStrLn, getLine)

@@ -12,16 +12,14 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
 
-module Flame.Type.TCB.Assume
+module Flame.TCB.Assume
   where
 
 import Data.Proxy (Proxy(..))
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
---import Control.RLMonad
-
-import Flame.Type.Principals
+import Flame.Principals
 
 {-
 -------------------------------------------------------------------------------------
