@@ -1,62 +1,57 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.IO
+       {- TODO: interface -}
 where
   
 import Flame.Principals
 import Flame.TCB.IFC 
 import qualified System.IO as SIO
 
-data IFCHandle (l::KPrin) = NewHdl { unsafeUnwrap :: SIO.Handle }
+data FLAHandle (l::KPrin) = NewHdl { unsafeUnwrap :: SIO.Handle }
 
-mkStdout :: SPrin out -> IFCHandle out
+mkStdout :: SPrin out -> FLAHandle out
 mkStdout out = NewHdl SIO.stdout
-mkStderr :: SPrin err -> IFCHandle err
+mkStderr :: SPrin err -> FLAHandle err
 mkStderr err = NewHdl SIO.stderr
-mkStdin  :: SPrin in_ -> IFCHandle in_
+mkStdin  :: SPrin in_ -> FLAHandle in_
 mkStdin in_ = NewHdl SIO.stdin
 
-hFlush :: (pc ⊑ l) => IFCHandle l -> IFC IO pc SU ()
-hFlush h = UnsafeIFC $ do _ <- SIO.hFlush (unsafeUnwrap h)
-                          return $ label ()
-hFlushx :: (pc ⊑ l) => SPrin pc -> IFCHandle l -> IFC IO pc SU ()
-hFlushx pc = hFlush
+hFlush :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> m IO n pc l' ()
+hFlush h = unsafeProtect $ do
+  _ <- SIO.hFlush (unsafeUnwrap h)
+  return $ label ()
 
-hPrint :: (Show a, pc ⊑ l) => IFCHandle l -> a -> IFC IO pc SU ()
-hPrint h s = UnsafeIFC $ do _ <- SIO.hPrint (unsafeUnwrap h) s
-                            return $ label ()
-hPrintx :: (Show a, pc ⊑ l) => SPrin pc -> IFCHandle l -> a -> IFC IO pc SU ()
-hPrintx pc = hPrint
+hPrint :: (FLA m IO n, Show a, pc ⊑ l) => FLAHandle l -> a -> m IO n pc l' ()
+hPrint h s = unsafeProtect $ do
+  _ <- SIO.hPrint (unsafeUnwrap h) s
+  return $ label ()
 
-hPutChar :: (pc ⊑ l) => IFCHandle l -> Char -> IFC IO pc SU ()
-hPutChar h c = UnsafeIFC $ do _ <- SIO.hPutChar (unsafeUnwrap h) c
-                              return $ label ()
-hPutCharx :: (pc ⊑ l) => SPrin pc -> IFCHandle l -> Char -> IFC IO pc SU ()
-hPutCharx pc = hPutChar
+hPutChar :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> Char -> m IO n pc l' ()
+hPutChar h c = unsafeProtect $ do
+  _ <- SIO.hPutChar (unsafeUnwrap h) c
+  return $ label ()
 
-hPutStr :: (pc ⊑ l) => IFCHandle l -> String -> IFC IO pc SU ()
-hPutStr h s = UnsafeIFC $ do _ <- SIO.hPutStr (unsafeUnwrap h) s
-                             return $ label ()
-hPutStrx :: (pc ⊑ l) => SPrin pc -> IFCHandle l -> String -> IFC IO pc SU ()
-hPutStrx pc = hPutStr
+hPutStr :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> String -> m IO n pc l' ()
+hPutStr h s = unsafeProtect $ do
+  _ <- SIO.hPutStr (unsafeUnwrap h) s
+  return $ label ()
 
-hPutStrLn :: (pc ⊑ l) => IFCHandle l -> String -> IFC IO pc SU ()
-hPutStrLn h s = UnsafeIFC $ do _ <- SIO.hPutStrLn (unsafeUnwrap h) s
-                               return $ label ()
-hPutStrLnx :: (pc ⊑ l) => SPrin pc -> IFCHandle l -> String -> IFC IO pc SU ()
-hPutStrLnx pc = hPutStrLn
+hPutStrLn :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> String -> m IO n pc l' ()
+hPutStrLn h s = unsafeProtect $ do
+  _ <- SIO.hPutStrLn (unsafeUnwrap h) s
+  return $ label ()
 
-hGetChar :: IFCHandle l -> IFC IO pc l Char
-hGetChar h = UnsafeIFC $ do c <- SIO.hGetChar (unsafeUnwrap h)
-                            return $ label c
-hGetCharx :: SPrin pc -> IFCHandle l -> IFC IO pc l Char
-hGetCharx pc = hGetChar
+hGetChar :: FLA m IO n => FLAHandle l -> m IO n pc l Char
+hGetChar h = unsafeProtect $ do
+  c <- SIO.hGetChar (unsafeUnwrap h)
+  return $ label c
 
-hGetLine :: IFCHandle l -> IFC IO pc l String
-hGetLine h = UnsafeIFC $ do s <- SIO.hGetLine (unsafeUnwrap h)
-                            return $ label s
-hGetLinex :: SPrin pc -> IFCHandle l -> IFC IO pc l String
-hGetLinex pc = hGetLine
+hGetLine :: FLA m IO n => FLAHandle l -> m IO n pc l String
+hGetLine h = unsafeProtect $ do
+  s <- SIO.hGetLine (unsafeUnwrap h)
+  return $ label s

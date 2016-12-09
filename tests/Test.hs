@@ -3,11 +3,11 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PostfixOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# OPTIONS_GHC -fplugin Flame.Type.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
-import Flame.Type.Principals
-import Flame.Type.IFC
-import Flame.Type.Assert
+import Flame.Principals
+import Flame.IFC
+import Flame.Assert
 
 type Alice = KName "Alice"
 type Bob = KName "Bob"

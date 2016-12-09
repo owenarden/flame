@@ -1,0 +1,102 @@
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+module Flame.Solver.Data where
+-- External
+import Data.IORef (IORef)
+
+-- GHC API
+import TyCon      (TyCon)
+import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace)
+import Type       (Type,TyVar,cmpType)
+import TcRnTypes  (Ct)
+
+#if __GLASGOW_HASKELL__ >= 711
+import Type       (eqType)
+#endif
+
+#if __GLASGOW_HASKELL__ >= 711
+instance Eq Type where
+  (==) = eqType
+#endif
+
+instance Ord Type where
+  compare = cmpType
+
+data Base v s
+  = P s -- ^ Primitive principal
+  | V v -- ^ Type var
+  | B   -- ^ Bottom
+  | T   -- ^ Top
+  | VarVoice v -- ^ Voice of type var
+  | VarEye v -- ^ Eye of type var
+  deriving (Eq,Ord)
+
+newtype MNorm v s = M { unM :: [Base v s]}
+  deriving (Eq)
+
+instance (Ord v, Ord c) => Ord (MNorm v c) where
+  compare (M [x])   (M [y])   = compare x y
+  compare (M [_])   (M (_:_)) = LT
+  compare (M (_:_)) (M [_])   = GT
+  compare (M xs)    (M ys)    = compare xs ys
+
+newtype JNorm v s = J { unJ :: [MNorm v s]}
+  deriving (Ord)
+
+instance (Eq v, Eq s) => Eq (JNorm v s) where
+  (J []) == (J [M [B]]) = True
+  (J [M [B]]) == (J []) = True
+  (J ms1) == (J ms2) = ms1 == ms2
+
+data Norm v s = N {conf :: JNorm v s, integ :: JNorm v s}
+  deriving (Ord)
+
+instance (Eq v, Eq s) => Eq (Norm v s) where
+  N c1 i1 == N c2 i2 = c1 == c2 && i1 == i2
+
+instance (Outputable v, Outputable s)  => Outputable (Norm v s) where
+  ppr (N c i) = case (pprSimple c, pprSimple i) of
+                  (cS, iS) -> cS <+> text "→ ∧ " <+> iS <+> text "←" 
+    where
+      pprSimple (J [M [P s]]) = ppr s
+      pprSimple (J [M [V v]]) = ppr v
+      pprSimple (J [M [B]]) = text "⊥"
+      pprSimple (J [M [T]]) = text "⊤"
+      pprSimple sop           = text "(" <+> ppr sop <+> text ")"
+
+instance (Outputable v, Outputable s) => Outputable (JNorm v s) where
+  ppr = hcat . punctuate (text " ∧ ") . map ppr . unJ
+
+instance (Outputable v, Outputable s) => Outputable (MNorm v s) where
+  ppr s = text "(" <+> (hcat . punctuate (text " ∨ ") . map ppr . unM) s <+> text ")"
+
+instance (Outputable v, Outputable s) => Outputable (Base v s) where
+    ppr (P s)   = ppr s
+    ppr (V s)   = ppr s
+    ppr B = text "⊥"
+    ppr T = text "⊤"
+    ppr (VarVoice v) = text "∇(" <+> ppr v <+> text "→)"
+    ppr (VarEye v) = text "Δ(" <+> ppr v <+> text "→)"
+
+-- | 'Norm' with 'TyVar' variables
+type CoreNorm   = Norm TyVar  Type
+type CoreJNorm  = JNorm TyVar Type
+type CoreMNorm  = MNorm TyVar Type
+type CoreBase   = Base TyVar  Type
+
+type DelClosure = [(CoreJNorm, [CoreJNorm])]
+data FlameRec = FlameRec {
+   discharged   :: IORef [Ct],
+   ktop         :: TyCon, 
+   kbot         :: TyCon, 
+   kname        :: TyCon, 
+   kconj        :: TyCon, 
+   kdisj        :: TyCon, 
+   kconf        :: TyCon, 
+   kinteg       :: TyCon,
+   kvoice       :: TyCon,
+   keye         :: TyCon,
+   actsfor      :: TyCon,
+   confClosure  :: DelClosure,
+   integClosure :: DelClosure
+ }
