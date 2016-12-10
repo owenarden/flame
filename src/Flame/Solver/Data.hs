@@ -79,14 +79,19 @@ instance (Outputable v, Outputable s) => Outputable (Base v s) where
     ppr (VarEye v) = text "Δ(" <+> ppr v <+> text "→)"
 
 -- | 'Norm' with 'TyVar' variables
-type CoreNorm   = Norm TyVar  Type
-type CoreJNorm  = JNorm TyVar Type
-type CoreMNorm  = MNorm TyVar Type
-type CoreBase   = Base TyVar  Type
+type CoreNorm       = Norm TyVar  Type
+type CoreJNorm      = JNorm TyVar Type
+type CoreMNorm      = MNorm TyVar Type
+type CoreBase       = Base TyVar  Type
 
-type DelClosure = [(CoreJNorm, [CoreJNorm])]
+                      
+type DelClosure v s = [(JNorm v s, [JNorm v s])]
+type CoreDelClosure = DelClosure TyVar  Type
+
+
 data FlameRec = FlameRec {
    --discharged   :: IORef [Ct],
+   kprin        :: TyCon, 
    ktop         :: TyCon, 
    kbot         :: TyCon, 
    kname        :: TyCon, 
@@ -97,6 +102,6 @@ data FlameRec = FlameRec {
    kvoice       :: TyCon,
    keye         :: TyCon,
    actsfor      :: TyCon,
-   confClosure  :: DelClosure,
-   integClosure :: DelClosure
+   confClosure  :: CoreDelClosure,
+   integClosure :: CoreDelClosure
  }

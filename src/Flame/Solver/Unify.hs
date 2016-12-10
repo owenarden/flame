@@ -50,6 +50,7 @@ import TyCoRep       (Type (..), TyLit (..))
 
 import Flame.Solver.Data
 import Flame.Solver.Norm
+import Flame.Solver.ActsFor
 
 -- | A substitution is essentially a list of (variable, 'Norm') pairs,
 -- but we keep the original 'Ct' that lead to the substitution being
@@ -128,36 +129,31 @@ instance Outputable UnifyResult where
 --
 -- If @u@ and @v@ do not have the same free variables, we result in a 'Draw',
 -- ware @u@ and @v@ are only equal when the returned 'CoreSubst' holds.
-unifyPrins :: Ct -> CoreNorm -> CoreNorm -> TcPluginM UnifyResult
-unifyPrins ct u v = do
+unifyPrins :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> TcPluginM UnifyResult
+unifyPrins flrec ct u v = do
   tcPluginTrace "unifyPrins" (ppr ct $$ ppr u $$ ppr v)
-  return (unifyPrins' ct u v)
+  return (unifyPrins' flrec ct u v)
 
-unifyPrins' :: Ct -> CoreNorm -> CoreNorm -> UnifyResult
-unifyPrins' ct u v
-  = if eqFV u v
-       then if containsConstants u || containsConstants v
-               then if u == v
-                       then Win
-                       else Draw (filter diffFromConstraint (unifiers ct u v))
-               else if u == v
-                       then Win
-                       else Lose
-       else Draw (filter diffFromConstraint (unifiers ct u v))
+unifyPrins' :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> UnifyResult
+unifyPrins' flrec ct u v
+  -- TODO: Lose case? no free variables?
+  = case actsFor flrec u v of
+      Just pf -> Win
+      Nothing -> Draw (filter diffFromConstraint (unifiers flrec ct u v))
   where
     -- A unifier is only a unifier if differs from the original constraint
     diffFromConstraint (UnifyItem x y) = not (x == u && y == v)
     diffFromConstraint _               = True
 
 -- | Find unifiers for two Norm terms
-unifiers :: Ct -> CoreNorm -> CoreNorm -> [CoreUnify]
-unifiers _ct s1 s2               = []
+unifiers :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> [CoreUnify]
+unifiers flrec _ct s1 s2               = []
 
-containsConstants :: CoreNorm -> Bool
-containsConstants (N c_u i_u) = containsConstants' c_u || containsConstants' i_u 
-  where
-    containsConstants' = any (any (\c -> case c of
-                                 {(P _) -> True; B -> True; T -> True; _ -> False}) . unM) . unJ
+--containsConstants :: CoreNorm -> Bool
+--containsConstants (N c_u i_u) = containsConstants' c_u || containsConstants' i_u 
+--  where
+--    containsConstants' = any (any (\c -> case c of
+--                                 {(P _) -> True; B -> True; T -> True; _ -> False}) . unM) . unJ
 
 {- | Collect the free variables of a normalized principal -}
 fvNorm :: CoreNorm -> UniqSet TyVar

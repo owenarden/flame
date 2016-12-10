@@ -17,18 +17,22 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:  Flame.Solver, 
+                    Flame.Solver.Data, 
+                    Flame.Solver.Norm, 
+                    Flame.Solver.ActsFor, 
+                    Flame.Solver.Unify, 
                     Flame.Principals, 
-                    Flame.Assert, 
-                    Flame.IFC, 
                     Flame.Runtime.Principals,
-                    Flame.Runtime.IO, 
-                    Flame.Runtime.IFCRef, 
-                    Flame.TCB.IFC, 
-                    Flame.TCB.NMIFC,
-                    Flame.TCB.Assume, 
-                    Flame.Runtime.Time,
-                    Flame.Runtime.Prelude,
-                    GHC.Extra.Instances
+                    Flame.Assert
+--Flame.IFC, 
+--Flame.Runtime.IO, 
+--Flame.Runtime.IFCRef, 
+--Flame.TCB.IFC, 
+--Flame.TCB.NMIFC,
+--Flame.TCB.Assume, 
+--Flame.Runtime.Time,
+--Flame.Runtime.Prelude
+
 -- Flame.Runtime.NMTime,
 -- Flame.Runtime.NMIO, 
 -- Flame.Runtime.NMIFCRef, 
@@ -41,7 +45,7 @@ library
                     UndecidableInstances, IncoherentInstances, Rank2Types, 
                     ConstraintKinds, ScopedTypeVariables, 
                     FunctionalDependencies, DataKinds
-  build-depends:    base >=4.8 && <4.9,
+  build-depends:    base >=4.9 && <5.0,
                     constraints,
                     reflection,
                     containers,

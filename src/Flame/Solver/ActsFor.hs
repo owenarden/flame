@@ -30,17 +30,16 @@ instance Outputable ActsForProof where
     ppr (AFConj pfs) = text "AFConj" <+> ppr pfs
     ppr (AFDisj pfs) = text "AFDisj" <+> ppr pfs
 
-actsFor :: FlameRec ->
-           (CoreNorm, CoreNorm) ->
-           Maybe ActsForProof
-actsFor flrec (p,q) 
+-- TODO: treat uninstantiated vars as bottom
+actsFor :: FlameRec -> CoreNorm -> CoreNorm -> Maybe ActsForProof
+actsFor flrec p q 
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q    = Just AFRefl
   | otherwise = --pprTrace "actsFor" (ppr (p,q)) $
         do
-          confPf <- confActsFor (conf p, conf q)
-          integPf <- integActsFor (integ p, integ q)
+          confPf <- confActsFor (conf p) (conf q)
+          integPf <- integActsFor (integ p) (integ q)
           Just $ AFConj [confPf, integPf]
   where
     top :: CoreNorm
@@ -48,15 +47,13 @@ actsFor flrec (p,q)
     bot :: CoreNorm
     bot = N (J [M [B]]) (J [M [B]])
 
-    confActsFor :: (CoreJNorm, CoreJNorm) -> Maybe ActsForProof
+    confActsFor :: CoreJNorm -> CoreJNorm -> Maybe ActsForProof
     confActsFor = actsForJ (confClosure flrec)
-    integActsFor :: (CoreJNorm, CoreJNorm) -> Maybe ActsForProof
+    integActsFor :: CoreJNorm -> CoreJNorm -> Maybe ActsForProof
     integActsFor = actsForJ (integClosure flrec)
 
-actsForJ :: DelClosure ->
-            (CoreJNorm, CoreJNorm) ->
-            Maybe ActsForProof
-actsForJ delClosure (p,q) 
+actsForJ :: CoreDelClosure -> CoreJNorm -> CoreJNorm -> Maybe ActsForProof
+actsForJ delClosure p q 
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
@@ -71,9 +68,9 @@ actsForJ delClosure (p,q)
     (J pms, J qms) = (p,q)
     conjProofs :: Maybe [ActsForProof]
     conjProofs = sequence $ map (\qm ->
-                                  case mapMaybe (\pm ->
-                                                  actsForM delClosure (pm,qm))
-                                                pms
+                                  case mapMaybe
+                                         (\pm -> actsForM delClosure pm qm)
+                                         pms
                                   of
                                     (pf:pfs) ->
                                       --pprTrace "found proof" (ppr pf) $
@@ -82,10 +79,9 @@ actsForJ delClosure (p,q)
                                 )
                                 qms
 
-actsForM :: DelClosure ->
-            (CoreMNorm, CoreMNorm) ->
+actsForM :: CoreDelClosure -> CoreMNorm -> CoreMNorm ->
             Maybe ActsForProof
-actsForM delClosure (p,q) 
+actsForM delClosure p q
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
@@ -100,7 +96,7 @@ actsForM delClosure (p,q)
     disjProofs :: Maybe [ActsForProof]
     disjProofs = sequence $ map (\pb ->
                                   case mapMaybe (\qb ->
-                                                  actsForB delClosure (pb,qb))
+                                                  actsForB delClosure pb qb)
                                                 qbs
                                   of
                                     (pf:pfs) -> Just pf
@@ -109,10 +105,9 @@ actsForM delClosure (p,q)
                                 pbs
 -- IDEA for transitivity.  If all given dels are expressed "primitively",
 -- then transitivity can be exploited as simple reachability via given dels.
-actsForB :: DelClosure ->
-            (CoreBase, CoreBase) ->
+actsForB :: CoreDelClosure -> CoreBase -> CoreBase ->
             Maybe ActsForProof
-actsForB delClosure (p,q) 
+actsForB delClosure p q 
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q  = Just AFRefl

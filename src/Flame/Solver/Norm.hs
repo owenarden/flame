@@ -215,12 +215,12 @@ reifyBase flrec B       = mkTyConApp (kbot flrec) []
 reifyBase flrec T       = mkTyConApp (ktop flrec) []
 
 
-cartProd :: CoreJNorm -> [CoreJNorm]
+cartProd :: JNorm v s -> [JNorm v s]
 cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
   where mkM p = M [p]
 
-flattenDelegations :: [(CoreNorm,CoreNorm)]
-             -> ([(CoreJNorm,CoreJNorm)], [(CoreJNorm,CoreJNorm)])
+flattenDelegations :: [(Norm v s, Norm v s)]
+             -> ([(JNorm v s, JNorm v s)], [(JNorm v s, JNorm v s)])
 flattenDelegations givens = foldl
                       (\(cacc, iacc) given ->
                         case given of
@@ -233,7 +233,7 @@ flattenDelegations givens = foldl
                             ([(supC, J [infC]) | supC <- cartProd supJC, infC <- infMCs] ++ cacc,
                              [(supI, (J [infI])) | supI <- cartProd supJI, infI <- infMIs] ++ iacc)
                       )
-                      ([] :: [(CoreJNorm, CoreJNorm)], [] :: [(CoreJNorm, CoreJNorm)])
+                      ([] :: [(JNorm v s, JNorm v s)], [] :: [(JNorm v s, JNorm v s)])
                       givens
   where
     cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
@@ -248,7 +248,7 @@ flattenDelegations givens = foldl
        the inferiors of each disjunct.
    - fixpoint?
  -}
-computeDelClosure :: [(CoreJNorm,CoreJNorm)] -> [(CoreJNorm, [CoreJNorm])]
+computeDelClosure :: [(CoreJNorm,CoreJNorm)] -> CoreDelClosure
 computeDelClosure givens =
   [(inferior, superiors) | (inferior, _, superiors) <- fixpoint initialEdges]
   where
