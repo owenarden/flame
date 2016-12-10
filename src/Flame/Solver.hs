@@ -220,8 +220,7 @@ toGivenActsFor flrec ct =
 toActsFor :: FlameRec -> Ct -> Maybe ActsForCt
 toActsFor flrec ct =
   case classifyPredType $ ctEvPred $ ctEvidence ct of
-    IrredPred af -> 
-                   case af of
+    IrredPred af -> case af of
                      TyConApp tc [p,q]
                        | tc == (actsfor flrec) -> 
                          let sup = normPrin flrec p in
@@ -245,16 +244,19 @@ unifyItemToPredType flrec ui =
 
 evMagic :: FlameRec -> Ct -> [PredType] -> TcPluginM (Maybe ((EvTerm, Ct), [Ct]))
 evMagic flrec ct preds = case classifyPredType $ ctEvPred $ ctEvidence ct of
-  EqPred NomEq t1 t2 -> do
-    holes <- replicateM (length preds) newCoercionHole
-    let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
-        ctEv      = mkUnivCo (PluginProv "flame") Nominal t1 t2
-        holeEvs   = zipWith (\h p -> uncurry (mkHoleCo h Nominal) (getEqPredTys p)) holes preds
-        natReflCo = mkNomReflCo $ kprin flrec
-        natCoBndr = (,natReflCo) <$> (newFlexiTyVar $ kprin flrec)
-    forallEv <- mkForAllCos <$> (replicateM (length preds) natCoBndr) <*> pure ctEv
-    let finalEv = foldl mkInstCo forallEv holeEvs
-    return (Just ((EvCoercion finalEv, ct),newWanted))
+  IrredPred af ->
+    case af of
+     TyConApp tc [p,q] | tc == (actsfor flrec) -> do
+       holes <- replicateM (length preds) newCoercionHole
+       let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
+           ctEv      = mkUnivCo (PluginProv "flame") Nominal p q 
+           holeEvs   = zipWith (\h p -> uncurry (mkHoleCo h Nominal) (getEqPredTys p)) holes preds
+           natReflCo = mkNomReflCo $ TyConApp (kprin flrec) []
+           natCoBndr = (,natReflCo) <$> (newFlexiTyVar $  TyConApp (kprin flrec) [])
+       forallEv <- mkForAllCos <$> (replicateM (length preds) natCoBndr) <*> pure ctEv
+       let finalEv = foldl mkInstCo forallEv holeEvs
+       return (Just ((EvCoercion finalEv, ct),newWanted))
+     _ -> return Nothing
   _ -> return Nothing
 
 unifyItemToCt :: CtLoc
