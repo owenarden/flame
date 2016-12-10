@@ -86,7 +86,7 @@ type CoreBase   = Base TyVar  Type
 
 type DelClosure = [(CoreJNorm, [CoreJNorm])]
 data FlameRec = FlameRec {
-   discharged   :: IORef [Ct],
+   --discharged   :: IORef [Ct],
    ktop         :: TyCon, 
    kbot         :: TyCon, 
    kname        :: TyCon, 

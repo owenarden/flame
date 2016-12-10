@@ -14,7 +14,7 @@ Maintainer :  Christiaan Baaij <christiaan.baaij@gmail.com>
 #define nonDetCmpType cmpType
 #endif
 
-module GHC.TypeLits.Normalise.Unify
+module Flame.Solver.Unify
   ( -- * 'Nat' expressions \<-\> 'Norm' terms
     --CType (..)
     -- * Substitution on 'Norm' terms
