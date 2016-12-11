@@ -48,7 +48,7 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
   protect :: a -> m e n pc l a
   protect = lift . label
 
-  use :: forall l l' pc pc' pc'' a b. (l ⊑ l', (pc ⊔ l) ⊑ pc', pc ⊑ pc'') =>
+  use :: forall l l' pc pc' pc'' a b. (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'') =>
          m e n pc l a -> (a -> m e n pc' l' b) -> m e n pc'' l' b
   use x f = apply x $ \x' -> (ebind x' f :: m e n pc' l' b)
   
@@ -59,10 +59,10 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
   reprotect :: forall l l' pc pc' a. (l ⊑ l', pc ⊑ pc') => m e n pc l a -> m e n pc' l' a 
   reprotect x = use x (protect :: a -> m e n SU l' a)
 
-  ffmap :: forall l l' pc pc' a b. (l ⊑ l', (pc ⊔ l) ⊑ pc') => (a -> b) -> m e n pc l a -> m e n pc' l' b
+  ffmap :: forall l l' pc pc' a b. (l ⊑ l', pc ⊑ pc', l ⊑ pc') => (a -> b) -> m e n pc l a -> m e n pc' l' b
   ffmap f x = use x (\x' -> protect (f x') :: m e n pc' l' b)
 
-  fjoin  :: (l ⊑ l', (pc ⊔ l) ⊑ pc') => m e n pc l (m e n pc' l' a) -> m e n pc' l' a
+  fjoin  :: forall l l' pc pc' a. (l ⊑ l',  pc ⊑ pc', l ⊑ pc') => m e n pc l (m e n pc' l' a) -> m e n pc' l' a
   fjoin x = use x id
 
 {- A type for pure labeled computations -}

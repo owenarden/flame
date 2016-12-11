@@ -23,13 +23,13 @@ library
                     Flame.Solver.Unify, 
                     Flame.Principals, 
                     Flame.Runtime.Principals,
-                    Flame.Assert
---Flame.IFC, 
---Flame.Runtime.IO, 
+                    Flame.Assert,
+                    Flame.TCB.IFC, 
+                    Flame.TCB.NMIFC,
+                    Flame.TCB.Assume, 
+                    Flame.IFC,
+                    Flame.Runtime.IO
 --Flame.Runtime.IFCRef, 
---Flame.TCB.IFC, 
---Flame.TCB.NMIFC,
---Flame.TCB.Assume, 
 --Flame.Runtime.Time,
 --Flame.Runtime.Prelude
 
