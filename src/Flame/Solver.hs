@@ -1,4 +1,7 @@
 {-|
+
+Solver for Flow-limited authorization acts-for constraints, by Owen Arden.
+
 Based heavily on https://github.com/clash-lang/ghc-typelits-natnormalise
 by Christiaan Baaij <christiaan.baaij@gmail.com>.
 License: BSD2
@@ -7,8 +10,9 @@ A type checker plugin for GHC that can solve FLAM acts-for contraints
 on types of kind 'Flame.Principals.KPrin'.
 
 To use the plugin, add
+
 @
-{\-\# OPTIONS_GHC -fplugin GHC.TypeLits.Normalize \#-\}
+{\-\# OPTIONS_GHC -fplugin Flame.Solver \#-\}
 @
 
 To the header of your file.
@@ -27,61 +31,40 @@ where
 -- external
 import Control.Arrow       (second)
 import Control.Monad       (replicateM)
-import Data.List           (intersect)
-import Data.Maybe          (mapMaybe)
-import Data.IORef          (IORef, newIORef,readIORef, modifyIORef)
+import Data.Maybe          (mapMaybe, maybeToList)
 
 -- GHC API
-import Outputable (Outputable (..), (<+>), ($$), text)
+import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
 import Plugins    (Plugin (..), defaultPlugin)
 import TcEvidence (EvTerm (..))
-import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt)
+import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt, tcLookupTyCon, tcLookupDataCon,
+                   tcPluginIO)
 import TcRnTypes  (Ct, TcPlugin (..), TcPluginResult(..), ctEvidence, ctEvPred,
                    isWanted, mkNonCanonical)
-import Type       (EqRel (NomEq), Kind, PredTree (EqPred, IrredPred), PredType,
-                   classifyPredType, eqType, getEqPredTys, mkTyVarTy)
-
+import Type       (EqRel (NomEq), Kind, PredTree (EqPred, IrredPred, ClassPred), PredType,
+                   classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass)
 import Coercion   (CoercionHole, Role (..), mkForAllCos, mkHoleCo, mkInstCo,
                    mkNomReflCo, mkUnivCo)
 import TcPluginM  (newCoercionHole, newFlexiTyVar)
 import TcRnTypes  (CtEvidence (..), CtLoc, TcEvDest (..), ctLoc)
-import TyCoRep    (UnivCoProvenance (..))
-import Type       (mkPrimEqPred)
-import TcType     (typeKind)
-import TyCoRep    (Type (..))
-import TcTypeNats (typeNatAddTyCon, typeNatExpTyCon, typeNatMulTyCon,
-                   typeNatSubTyCon)
-
-import TcTypeNats (typeNatLeqTyCon)
-import Type       (mkNumLitTy,mkTyConApp)
-import TysWiredIn (promotedFalseDataCon, promotedTrueDataCon)
-
--- plugin
+import TyCoRep    (UnivCoProvenance (..), Type (..))
 import FastString (fsLit)
-import GHC.TcPluginM.Extra (evByFiat, lookupModule, lookupName, newGiven, tracePlugin)
+import GHC.TcPluginM.Extra (lookupModule, lookupName, newGiven, tracePlugin)
 import OccName    (mkTcOcc, mkDataOcc, mkClsOcc)
 import Module     (mkModuleName)
-import TcPluginM  (TcPluginM, tcLookupTyCon, tcLookupDataCon, tcLookupClass, tcPluginIO, tcPluginTrace, zonkCt)
 import DataCon (promoteDataCon)
-import TysWiredIn (promotedTrueDataCon)
 
 -- internal
 import Flame.Solver.Data
 import Flame.Solver.Unify
 import Flame.Solver.Norm
 
--- | To use the plugin, add
---
--- @
--- {\-\# OPTIONS_GHC -fplugin GHC.TypeLits.Normalize \#-\}
--- @
---
--- To the header of your file.
-plugin :: Plugin
-plugin = defaultPlugin { tcPlugin = const $ Just normalizePlugin }
 
-normalizePlugin :: TcPlugin
-normalizePlugin = tracePlugin "flame"
+plugin :: Plugin
+plugin = defaultPlugin { tcPlugin = const $ Just flamePlugin }
+
+flamePlugin :: TcPlugin
+flamePlugin = tracePlugin "flame"
   TcPlugin { tcPluginInit  = lookupFlameRec
            , tcPluginSolve = decideActsFor
            , tcPluginStop  = \_ -> (return ())
@@ -89,7 +72,6 @@ normalizePlugin = tracePlugin "flame"
 
 lookupFlameRec :: TcPluginM FlameRec
 lookupFlameRec = do
-    --discharged <- tcPluginIO $ newIORef []
     md         <- lookupModule flameModule flamePackage
     kprinTcNm    <- lookupName md (mkTcOcc "KPrin")
     actsforTcNm  <- lookupName md (mkTcOcc "≽")
@@ -138,11 +120,11 @@ decideActsFor _ _givens _deriveds []      = return (TcPluginOk [] [])
 decideActsFor flrec givens  _deriveds wanteds = do
     -- GHC 7.10.1 puts deriveds with the wanteds, so filter them out
     let wanteds' = filter (isWanted . ctEvidence) wanteds
-    let unit_wanteds = mapMaybe (toActsFor flrec) wanteds'
+    let unit_wanteds = concat $ map (toActsFor flrec) wanteds'
     case unit_wanteds of
       [] -> return (TcPluginOk [] [])
       _  -> do
-        unit_givens <- mapMaybe (toGivenActsFor flrec) <$> mapM zonkCt givens
+        unit_givens <- concat <$> mapM (toActsFor flrec) <$> mapM zonkCt givens
         sr <- simplifyPrins flrec unit_givens unit_wanteds
         tcPluginTrace "flame-normalized" (ppr sr)
         case sr of
@@ -183,7 +165,7 @@ simplifyPrins flrec givens eqs =
       --      parts of closure that have TyVars that were substituted
       let (conf_givens_flat, integ_givens_flat) =
             flattenDelegations $ map (substsGiven subst) givens
-          conf_closure = computeDelClosure conf_givens_flat
+          conf_closure =  computeDelClosure conf_givens_flat
           integ_closure = computeDelClosure integ_givens_flat
           flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure}
       ur <- unifyPrins flrec' ct (substsNorm subst u) (substsNorm subst v)
@@ -203,34 +185,23 @@ simplifyPrins flrec givens eqs =
                       (ev:evs) [] (xs ++ eqs')
     substsGiven s (ct, (p, q)) = (substsNorm s p, substsNorm s q) 
 
--- Extract the given
-toGivenActsFor :: FlameRec -> Ct -> Maybe ActsForCt
-toGivenActsFor flrec ct =
+-- Extract the actsfor constraints
+toActsFor :: FlameRec -> Ct -> [ActsForCt]
+toActsFor flrec ct = 
   case classifyPredType $ ctEvPred $ ctEvidence ct of
-    EqPred NomEq af fsk -> 
-                   case af of
+    EqPred NomEq af fsk -> maybeToList $ getActsFor af
+    IrredPred af ->  maybeToList $ getActsFor af
+    ClassPred cls afs | isCTupleClass cls -> mapMaybe getActsFor afs 
+    _ -> []
+  where
+    getActsFor af = case af of
                      TyConApp tc [p,q]
                        | tc == (actsfor flrec) -> 
                          let sup = normPrin flrec p in
                          let inf = normPrin flrec q in
                             Just (ct, (sup, inf))
                      _ -> Nothing
-    _ -> Nothing
--- Extract the acts-for constraints
-toActsFor :: FlameRec -> Ct -> Maybe ActsForCt
-toActsFor flrec ct =
-  case classifyPredType $ ctEvPred $ ctEvidence ct of
-    IrredPred af -> case af of
-                     TyConApp tc [p,q]
-                       | tc == (actsfor flrec) -> 
-                         let sup = normPrin flrec p in
-                         let inf = normPrin flrec q in
-                            --(pprTrace "wanted" (ppr (sup, inf)) $
-                             Just (ct, (sup, inf))
-                     _ -> Nothing
-    -- TODO: Support (propositional?) equality constraints on principals
-    _ -> Nothing
-
+                         
 unifyItemToPredType :: FlameRec -> CoreUnify -> PredType
 unifyItemToPredType flrec ui =
     mkPrimEqPred ty1 ty2
@@ -244,8 +215,14 @@ unifyItemToPredType flrec ui =
 
 evMagic :: FlameRec -> Ct -> [PredType] -> TcPluginM (Maybe ((EvTerm, Ct), [Ct]))
 evMagic flrec ct preds = case classifyPredType $ ctEvPred $ ctEvidence ct of
-  IrredPred af ->
-    case af of
+  EqPred NomEq af fsk -> doMagic af
+  IrredPred af ->  doMagic af
+  ClassPred cls (af:afs) | isCTupleClass cls -> doMagic af -- XXX: HACK: only using first one..
+                                                           --      are these evidence terms
+                                                           --      used for anything? How?
+  _ -> return Nothing
+ where
+   doMagic af = case af of
      TyConApp tc [p,q] | tc == (actsfor flrec) -> do
        holes <- replicateM (length preds) newCoercionHole
        let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
@@ -257,7 +234,6 @@ evMagic flrec ct preds = case classifyPredType $ ctEvPred $ ctEvidence ct of
        let finalEv = foldl mkInstCo forallEv holeEvs
        return (Just ((EvCoercion finalEv, ct),newWanted))
      _ -> return Nothing
-  _ -> return Nothing
 
 unifyItemToCt :: CtLoc
               -> PredType

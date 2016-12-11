@@ -27,8 +27,18 @@ test5 = test1
 eqTSym :: (l === l') => SPrin l -> SPrin l' -> ()
 eqTSym l l' = assertEq l' l
 
-eqTTrans :: (p === q, q === r) => SPrin p -> SPrin q -> SPrin r -> ()
-eqTTrans p q r = assertEq p r
+eqTTrans :: (p ≽ q, q ≽ r) => SPrin p -> SPrin q -> SPrin r -> ()
+eqTTrans p q r = assertActsFor p r
+
+eqTTrans2 :: (p ≽ q, q ≽ r, r ≽ q, q ≽ p) => SPrin p -> SPrin q -> SPrin r -> ()
+eqTTrans2 p q r = assertEq p r
+
+--TODO: these givens are not processed correctly...
+eqTTrans3 :: (p ⊑ q, q ⊑ r) => SPrin p -> SPrin q -> SPrin r -> ()
+eqTTrans3 p q r = assertFlowsTo p r
+
+eqTTrans4 :: (p === q, q === r) => SPrin p -> SPrin q -> SPrin r -> ()
+eqTTrans4 p q r = assertEq p r
 
 eqTConjComm :: SPrin p -> SPrin q -> ()
 eqTConjComm p q = assertEq (p *∧ q) (q *∧ p) 

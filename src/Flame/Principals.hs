@@ -213,11 +213,12 @@ meet = (⊓)
 {- Actsfor constraint -}
 {- Exported type operators for actsfor -}
 type family (≽) (p :: KPrin) (q :: KPrin) :: Constraint where
-  KBot ≽ KBot = (True ~ True) -- until GHC 8.x, closed families cannot be empty.
+--  KBot ≽ KBot = (True ~ True) -- until GHC 8.x, closed families cannot be empty.
 
 type (>=) (p :: KPrin) (q :: KPrin) = (p ≽ q) 
 
 {- Exported type operators for flowsto -}
-type (⊑) (p :: KPrin) (q :: KPrin) = ((C q ≽ C p) , (I p ≽ I q)) 
-type (<:) (p :: KPrin) (q :: KPrin) = ((C q ≽ C p) , (I p ≽ I q)) 
+type (⊑) (p :: KPrin) (q :: KPrin) = (C q ≽ C p , I p ≽ I q) 
+type (<:) (p :: KPrin) (q :: KPrin) = (p ⊑ q)
+-- This doesn't work somehow..
 type (===) (p :: KPrin) (q :: KPrin) = (p ≽ q, q ≽ p)
