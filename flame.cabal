@@ -25,7 +25,6 @@ library
                     Flame.Runtime.Principals,
                     Flame.Assert,
                     Flame.TCB.IFC, 
-                    Flame.TCB.NMIFC,
                     Flame.TCB.Assume, 
                     Flame.IFC,
                     Flame.Runtime.IO

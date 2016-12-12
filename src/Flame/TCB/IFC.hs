@@ -51,7 +51,7 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
   use :: forall l l' pc pc' pc'' a b. (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'') =>
          m e n pc l a -> (a -> m e n pc' l' b) -> m e n pc'' l' b
   use x f = apply x $ \x' -> (ebind x' f :: m e n pc' l' b)
-  
+ 
   assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
               (p :≽ q) -> ((p ≽ q) => m e n pc l a) -> m e n pc l a
   assume = unsafeAssume

@@ -213,7 +213,6 @@ meet = (⊓)
 {- Actsfor constraint -}
 {- Exported type operators for actsfor -}
 type family (≽) (p :: KPrin) (q :: KPrin) :: Constraint where
---  KBot ≽ KBot = (True ~ True) -- until GHC 8.x, closed families cannot be empty.
 
 type (>=) (p :: KPrin) (q :: KPrin) = (p ≽ q) 
 

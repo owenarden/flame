@@ -42,17 +42,18 @@ import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt, tcLookupTyCon, tcLookupData
 import TcRnTypes  (Ct, TcPlugin (..), TcPluginResult(..), ctEvidence, ctEvPred,
                    isWanted, mkNonCanonical)
 import Type       (EqRel (NomEq), Kind, PredTree (EqPred, IrredPred, ClassPred), PredType,
-                   classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass)
+                   classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass, typeKind)
 import Coercion   (CoercionHole, Role (..), mkForAllCos, mkHoleCo, mkInstCo,
                    mkNomReflCo, mkUnivCo)
 import TcPluginM  (newCoercionHole, newFlexiTyVar)
 import TcRnTypes  (CtEvidence (..), CtLoc, TcEvDest (..), ctLoc)
 import TyCoRep    (UnivCoProvenance (..), Type (..))
 import FastString (fsLit)
-import GHC.TcPluginM.Extra (lookupModule, lookupName, newGiven, tracePlugin)
+import GHC.TcPluginM.Extra (lookupModule, lookupName, newGiven, tracePlugin, evByFiat)
 import OccName    (mkTcOcc, mkDataOcc, mkClsOcc)
 import Module     (mkModuleName)
-import DataCon (promoteDataCon)
+import DataCon (promoteDataCon, dataConWrapId)
+import TysWiredIn  ( heqDataCon, heqTyCon )
 
 -- internal
 import Flame.Solver.Data
@@ -215,28 +216,47 @@ unifyItemToPredType flrec ui =
 
 evMagic :: FlameRec -> Ct -> [PredType] -> TcPluginM (Maybe ((EvTerm, Ct), [Ct]))
 evMagic flrec ct preds = case classifyPredType $ ctEvPred $ ctEvidence ct of
-  EqPred NomEq af fsk -> doMagic af
-  IrredPred af ->  doMagic af
-  ClassPred cls (af:afs) | isCTupleClass cls -> doMagic af -- XXX: HACK: only using first one..
-                                                           --      are these evidence terms
-                                                           --      used for anything? How?
+  EqPred NomEq af fsk -> --pprTrace "EQ PRED: " ((ppr af) <+> (ppr fsk)) $
+    doEQMagic af
+  IrredPred af -> --pprTrace "IRRED PRED: " ((ppr ct) <+> (ppr af) <+> (ppr preds)) $
+    doEQMagic af
+  ClassPred cls (af:afs) | isCTupleClass cls ->
+    doEQMagic af -- XXX: HACK: only using first one..
+                 -- Still don't understand how evidence terms are used.
   _ -> return Nothing
  where
-   doMagic af = case af of
-     TyConApp tc [p,q] | tc == (actsfor flrec) -> do
-       holes <- replicateM (length preds) newCoercionHole
-       let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
-           ctEv      = mkUnivCo (PluginProv "flame") Nominal p q 
-           holeEvs   = zipWith (\h p -> uncurry (mkHoleCo h Nominal) (getEqPredTys p)) holes preds
-           natReflCo = mkNomReflCo $ TyConApp (kprin flrec) []
-           natCoBndr = (,natReflCo) <$> (newFlexiTyVar $  TyConApp (kprin flrec) [])
-       forallEv <- mkForAllCos <$> (replicateM (length preds) natCoBndr) <*> pure ctEv
-       let finalEv = foldl mkInstCo forallEv holeEvs
-       return (Just ((EvCoercion finalEv, ct),newWanted))
+   doEQMagic af = case af of
+     -- This is based on Adam Gundry's uom-plugin. Ignoring newWanted for now.
+     TyConApp tc [p,q] | tc == (actsfor flrec) -> return $ (Just ((mkActsForEvidence af p q, ct), []))
      _ -> return Nothing
+   --doEQMagic af = case af of
+   --  TyConApp tc [p,q] | tc == (actsfor flrec) -> do
+   --    holes <- replicateM (length preds) newCoercionHole
+   --    let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
+   --        --ctEv      = mkUnivCo (PluginProv "flame") Nominal p q
+   --        ctEv      = mkActsForEvidence af p q
+   --        holeEvs   = zipWith (\h p -> uncurry (mkHoleCo h Nominal) (getEqPredTys p)) holes preds
+   --        natReflCo = mkNomReflCo $ TyConApp (kprin flrec) []
+   --        natCoBndr = (,natReflCo) <$> (newFlexiTyVar $  TyConApp (kprin flrec) [])
+   --    forallEv <- mkForAllCos <$> (replicateM (length preds) natCoBndr) <*> pure ctEv
+   --    let finalEv = foldl mkInstCo forallEv holeEvs
+   --    return (Just ((EvCoercion finalEv, ct),newWanted))
+   --  _ -> return Nothing
 
+
+-- | Make up evidence for a fake equality constraint @t1 ~~ t2@ by
+-- coercing bogus evidence of type @t1 ~ t2@ (or its heterogeneous
+-- variant, in GHC 8.0).
+-- stolen from https://github.com/adamgundry/uom-plugin
+mkActsForEvidence :: Type -> Type -> Type -> EvTerm
+mkActsForEvidence af p q = EvDFunApp (dataConWrapId heqDataCon) [typeKind p, typeKind q, p, q] [evByFiat "flame" p q]
+                       `EvCast` mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af
+ 
 unifyItemToCt :: CtLoc
               -> PredType
               -> CoercionHole
               -> Ct
 unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest hole) loc)
+
+mkHEqPred :: Type -> Type -> Type
+mkHEqPred t1 t2 = TyConApp heqTyCon [typeKind t1, typeKind t2, t1, t2]
