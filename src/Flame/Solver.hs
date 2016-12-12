@@ -196,10 +196,10 @@ toActsFor flrec ct =
   where
     getActsFor af = case af of
                      TyConApp tc [p,q]
-                       | tc == (actsfor flrec) -> 
-                         let sup = normPrin flrec p in
-                         let inf = normPrin flrec q in
-                            Just (ct, (sup, inf))
+                       | tc == (actsfor flrec) -> do
+                         sup <- normPrin flrec p
+                         inf <- normPrin flrec q
+                         return (ct, (sup, inf))
                      _ -> Nothing
                          
 unifyItemToPredType :: FlameRec -> CoreUnify -> PredType

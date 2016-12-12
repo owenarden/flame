@@ -9,11 +9,11 @@ import Data.Graph    (graphFromEdges, reachable, vertices)
 import Data.Function (on)
 
 -- GHC API
-import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace)
-import Type       (cmpType, coreView, mkTyVarTy, mkTyConApp)
+import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace, showPpr)
+import Type       (cmpType, coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
 
 #if __GLASGOW_HASKELL__ >= 711
-import TyCoRep    (Type (..), TyLit (..))
+import TyCoRep    (Type (..), TyLit (..), UnivCoProvenance(..), Coercion(..))
 #else
 import TypeRep    (Type (..), TyLit (..))
 #endif
@@ -123,52 +123,49 @@ mergeNormMeet (N c1 i1) (N c2 i2) = N (mergeJNormMeet c1 c2) (mergeJNormMeet i1 
 -- | Convert a type of /kind/ 'Flame.Principals.KPrin' to a 'JNorm' term
 -- flrec contains the KPrin type constructors
 -- isConf indicates whether we are normalizing the conf component
-jnormPrin :: FlameRec -> Bool -> Type -> CoreJNorm
+jnormPrin :: FlameRec -> Bool -> Type -> Maybe CoreJNorm
 jnormPrin flrec isConf ty | Just ty1 <- coreView ty = jnormPrin' ty1
   where jnormPrin' = jnormPrin flrec isConf
-jnormPrin flrec isConf (TyVarTy v) = J [M [V v]]
+jnormPrin flrec isConf (TyVarTy v) = return $ J [M [V v]]
 jnormPrin flrec isConf (TyConApp tc [])
-  | tc == (ktop flrec) = J [M [T]]
-  | tc == (kbot flrec) = J [M [B]]
+  | tc == (ktop flrec) = return $ J [M [T]]
+  | tc == (kbot flrec) = return $ J [M [B]]
 jnormPrin flrec isConf (TyConApp tc [x])
-  | tc == (kname flrec) = J [M [P x]]
+  | tc == (kname flrec) = return $ J [M [P x]]
   | tc == (kconf flrec) =
-    if isConf then jnormPrin' x else J [M [B]]
+    if isConf then jnormPrin' x else return $ J [M [B]]
   | tc == (kinteg flrec) = 
-    if isConf then J [M [B]] else jnormPrin' x
+    if isConf then return $ J [M [B]] else jnormPrin' x
   | tc == (kvoice flrec) =
-    if isConf then J [M [B]] else integ $ voiceOf (normPrin flrec x)
+    if isConf then return $ J [M [B]] else integ <$> voiceOf <$> (normPrin flrec x)
   | tc == (keye flrec) =
-    if isConf then conf $ eyeOf (normPrin flrec x) else J [M [B]]
+    if isConf then conf <$> eyeOf <$> (normPrin flrec x) else return $ J [M [B]]
   where jnormPrin' = jnormPrin flrec isConf
 jnormPrin flrec isConf (TyConApp tc [x,y])
-  | tc == (kconj flrec) = mergeJNormJoin (jnormPrin' x) (jnormPrin' y)
-  | tc == (kdisj flrec) = mergeJNormMeet (jnormPrin' x) (jnormPrin' y)
+  | tc == (kconj flrec) = mergeJNormJoin <$> jnormPrin' x <*> jnormPrin' y
+  | tc == (kdisj flrec) = mergeJNormMeet <$> jnormPrin' x <*> jnormPrin' y
   where jnormPrin' = jnormPrin flrec isConf
+jnormPrin flrec isConf ty = Nothing
 
--- | Convert a type of /kind/ 'Flame.Principals.KPrin' to a 'JNorm' term
-normPrin :: FlameRec -> Type -> CoreNorm
+---- | Convert a type of /kind/ 'Flame.Principals.KPrin' to a 'JNorm' term
+normPrin :: FlameRec -> Type -> Maybe CoreNorm
 normPrin flrec ty
-  | Just ty1 <- coreView ty =
-      N (jnormPrin flrec True ty1) (jnormPrin flrec False ty1)
-normPrin flrec (TyVarTy v) = N (J [M [V v]]) (J [M [V v]])
+  | Just ty1 <- coreView ty = normPrin flrec ty1
+normPrin flrec (TyVarTy v) = return $ N (J [M [V v]]) (J [M [V v]])
 normPrin flrec (TyConApp tc [])
-  | tc == (ktop flrec) = N (J [M [T]]) (J [M [T]])
-  | tc == (kbot flrec) = N (J [M [B]]) (J [M [B]])
+  | tc == (ktop flrec) = return $ N (J [M [T]]) (J [M [T]])
+  | tc == (kbot flrec) = return $ N (J [M [B]]) (J [M [B]])
 normPrin flrec (TyConApp tc [x])
-  | tc == (kname flrec) =  N (J [M [P x]]) (J [M [P x]])
-  | tc == (kconf flrec) =  N (jnormPrin flrec True x) (J [M [B]])
-  | tc == (kinteg flrec) = N (J [M [B]]) (jnormPrin flrec False x)
-  | tc == (kvoice flrec) =  voiceOf (normPrin flrec x)
-  | tc == (keye flrec) =  eyeOf (normPrin flrec x)
+  | tc == (kname flrec)  = return $ N (J [M [P x]]) (J [M [P x]])
+  | tc == (kconf flrec)  = N <$> (jnormPrin flrec True x) <*> (Just (J [M [B]]))
+  | tc == (kinteg flrec) = N (J [M [B]]) <$> (jnormPrin flrec False x)
+  | tc == (kvoice flrec) = voiceOf <$> normPrin flrec x
+  | tc == (keye flrec)   = eyeOf <$> normPrin flrec x
 normPrin flrec (TyConApp tc [x,y])
-  | tc == (kconj flrec) = let x' = normPrin flrec x in
-                          let y' = normPrin flrec y in
-                             mergeNormJoin x' y'
-  | tc == (kdisj flrec) = let x' = normPrin flrec x in
-                          let y' = normPrin flrec y in
-                             mergeNormMeet x' y'
-
+  | tc == (kconj flrec) = mergeNormJoin <$> normPrin flrec x <*> normPrin flrec y 
+  | tc == (kdisj flrec) = mergeNormMeet <$> normPrin flrec x <*> normPrin flrec y 
+normPrin flrec ty = Nothing
+  
 voiceOf :: Norm v s -> Norm v s
 voiceOf (N conf _) = N (J [M [B]]) (wrapVars conf)
   where
