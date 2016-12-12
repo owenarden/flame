@@ -29,7 +29,7 @@ ifThenElse False _ f = f
 return :: FLA m e n => a -> m e n pc l a
 return = protect
 
-(>>=) :: (FLA m e n, l ⊑ l', (pc ⊔ l) ⊑ pc', pc ⊑ pc'')
+(>>=) :: (FLA m e n, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
          => m e n pc l a
          -> (a -> m e n pc' l' b)
          -> m e n pc'' l' b

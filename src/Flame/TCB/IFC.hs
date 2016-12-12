@@ -104,7 +104,6 @@ instance Labeled Lbl where
 --  return = label
 --  (>>=) = bind
 
-
 {- A transformer for effectful labeled computations -}
 data CtlT e (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a where
   UnsafeIFC :: { runIFC :: e (n l a) } -> CtlT e n pc l a
@@ -127,10 +126,3 @@ instance Monad e => FLA CtlT e Lbl where
   apply   = ifc_apply
   unsafeProtect = UnsafeIFC
   runFLA  = runIFC
-
-{- XXX: The below operations will become unecessary with a GLB solver -}
-runIFCx :: Monad e => SPrin pc -> CtlT e Lbl pc l a -> e (Lbl l a)
-runIFCx pc ctl = runIFC ctl 
-
-runIFCxx :: Monad e => SPrin pc -> SPrin l -> CtlT e Lbl pc l a -> e (Lbl l a)
-runIFCxx pc l ctl = runIFC ctl 

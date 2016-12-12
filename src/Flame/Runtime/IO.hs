@@ -2,6 +2,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.IO
@@ -21,37 +22,37 @@ mkStderr err = NewHdl SIO.stderr
 mkStdin  :: SPrin in_ -> FLAHandle in_
 mkStdin in_ = NewHdl SIO.stdin
 
-hFlush :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> m IO n pc l' ()
+hFlush :: forall pc l' m n l. (FLA m IO n, pc ⊑ l) => FLAHandle l -> m IO n pc l' ()
 hFlush h = unsafeProtect $ do
   _ <- SIO.hFlush (unsafeUnwrap h)
   return $ label ()
 
-hPrint :: (FLA m IO n, Show a, pc ⊑ l) => FLAHandle l -> a -> m IO n pc l' ()
+hPrint :: forall pc l' m n l a. (FLA m IO n, Show a, pc ⊑ l) => FLAHandle l -> a -> m IO n pc l' ()
 hPrint h s = unsafeProtect $ do
   _ <- SIO.hPrint (unsafeUnwrap h) s
   return $ label ()
 
-hPutChar :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> Char -> m IO n pc l' ()
+hPutChar :: forall pc l' m n l. (FLA m IO n, pc ⊑ l) => FLAHandle l -> Char -> m IO n pc l' ()
 hPutChar h c = unsafeProtect $ do
   _ <- SIO.hPutChar (unsafeUnwrap h) c
   return $ label ()
 
-hPutStr :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> String -> m IO n pc l' ()
+hPutStr :: forall pc l' m n l. (FLA m IO n, pc ⊑ l) => FLAHandle l -> String -> m IO n pc l' ()
 hPutStr h s = unsafeProtect $ do
   _ <- SIO.hPutStr (unsafeUnwrap h) s
   return $ label ()
 
-hPutStrLn :: (FLA m IO n, pc ⊑ l) => FLAHandle l -> String -> m IO n pc l' ()
+hPutStrLn :: forall pc l' m n l. (FLA m IO n, pc ⊑ l) => FLAHandle l -> String -> m IO n pc l' ()
 hPutStrLn h s = unsafeProtect $ do
   _ <- SIO.hPutStrLn (unsafeUnwrap h) s
   return $ label ()
 
-hGetChar :: FLA m IO n => FLAHandle l -> m IO n pc l Char
+hGetChar :: forall pc l m n. FLA m IO n => FLAHandle l -> m IO n pc l Char
 hGetChar h = unsafeProtect $ do
   c <- SIO.hGetChar (unsafeUnwrap h)
   return $ label c
 
-hGetLine :: FLA m IO n => FLAHandle l -> m IO n pc l String
+hGetLine :: forall pc l m n. FLA m IO n => FLAHandle l -> m IO n pc l String
 hGetLine h = unsafeProtect $ do
   s <- SIO.hGetLine (unsafeUnwrap h)
   return $ label s

@@ -36,8 +36,7 @@ actsFor flrec p q
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = --pprTrace "actsFor" (ppr (p,q)) $
-        do
+  | otherwise = do
           confPf <- confActsFor (conf p) (conf q)
           integPf <- integActsFor (integ p) (integ q)
           Just $ AFConj [confPf, integPf]

@@ -122,10 +122,12 @@ decideActsFor flrec givens  _deriveds wanteds = do
     -- GHC 7.10.1 puts deriveds with the wanteds, so filter them out
     let wanteds' = filter (isWanted . ctEvidence) wanteds
     let unit_wanteds = concat $ map (toActsFor flrec) wanteds'
+    -- XXX: natnormalise zonkCt's these, but that appears to remove the ones I care about.
+    let unit_givens = concat $ map (toActsFor flrec) givens
     case unit_wanteds of
       [] -> return (TcPluginOk [] [])
       _  -> do
-        unit_givens <- concat <$> mapM (toActsFor flrec) <$> mapM zonkCt givens
+        --unit_givens <- concat <$> mapM (toActsFor flrec) <$> mapM zonkCt givens
         sr <- simplifyPrins flrec unit_givens unit_wanteds
         tcPluginTrace "flame-normalized" (ppr sr)
         case sr of
@@ -188,10 +190,9 @@ simplifyPrins flrec givens eqs =
 
 -- Extract the actsfor constraints
 toActsFor :: FlameRec -> Ct -> [ActsForCt]
-toActsFor flrec ct = 
-  case classifyPredType $ ctEvPred $ ctEvidence ct of
+toActsFor flrec ct = case classifyPredType $ ctEvPred $ ctEvidence ct of
     EqPred NomEq af fsk -> maybeToList $ getActsFor af
-    IrredPred af ->  maybeToList $ getActsFor af
+    IrredPred af -> maybeToList $ getActsFor af
     ClassPred cls afs | isCTupleClass cls -> mapMaybe getActsFor afs 
     _ -> []
   where
@@ -201,7 +202,7 @@ toActsFor flrec ct =
                          sup <- normPrin flrec p
                          inf <- normPrin flrec q
                          return (ct, (sup, inf))
-                     _ -> Nothing
+                     af -> Nothing
                          
 unifyItemToPredType :: FlameRec -> CoreUnify -> PredType
 unifyItemToPredType flrec ui =

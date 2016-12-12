@@ -27,10 +27,10 @@ library
                     Flame.TCB.IFC, 
                     Flame.TCB.Assume, 
                     Flame.IFC,
-                    Flame.Runtime.IO
---Flame.Runtime.IFCRef, 
---Flame.Runtime.Time,
---Flame.Runtime.Prelude
+                    Flame.Runtime.IO,
+                    Flame.Runtime.IFCRef, 
+                    Flame.Runtime.Time,
+                    Flame.Runtime.Prelude
 
 -- Flame.Runtime.NMTime,
 -- Flame.Runtime.NMIO, 
