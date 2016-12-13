@@ -6,6 +6,7 @@ module Flame.Solver.ActsFor
 where
 
 import Flame.Solver.Data  
+import Flame.Solver.Norm
 
 -- External
 import Data.Maybe  (mapMaybe)
@@ -37,22 +38,21 @@ actsFor flrec p q
   | q == bot = Just AFBot
   | p == q    = Just AFRefl
   | otherwise = do
-          confPf <- confActsFor (conf p) (conf q)
-          integPf <- integActsFor (integ p) (integ q)
+          confPf <- actsForJ flrec True (conf p) (conf q)
+          integPf <- actsForJ flrec False (integ p) (integ q)
           Just $ AFConj [confPf, integPf]
   where
     top :: CoreNorm
     top = N (J [M [T]]) (J [M [T]])
     bot :: CoreNorm
     bot = N (J [M [B]]) (J [M [B]])
+    --confActsFor :: CoreJNorm -> CoreJNorm -> Maybe ActsForProof
+    --confActsFor = actsForJ (confClosure flrec)
+    --integActsFor :: CoreJNorm -> CoreJNorm -> Maybe ActsForProof
+    --integActsFor = actsForJ (integClosure flrec)
 
-    confActsFor :: CoreJNorm -> CoreJNorm -> Maybe ActsForProof
-    confActsFor = actsForJ (confClosure flrec)
-    integActsFor :: CoreJNorm -> CoreJNorm -> Maybe ActsForProof
-    integActsFor = actsForJ (integClosure flrec)
-
-actsForJ :: CoreDelClosure -> CoreJNorm -> CoreJNorm -> Maybe ActsForProof
-actsForJ delClosure p q 
+actsForJ :: FlameRec -> Bool -> CoreJNorm -> CoreJNorm -> Maybe ActsForProof
+actsForJ flrec isConf p q 
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
@@ -68,7 +68,7 @@ actsForJ delClosure p q
     conjProofs :: Maybe [ActsForProof]
     conjProofs = sequence $ map (\qm ->
                                   case mapMaybe
-                                         (\pm -> actsForM delClosure pm qm)
+                                         (\pm -> actsForM flrec isConf pm qm)
                                          pms
                                   of
                                     (pf:pfs) ->
@@ -78,9 +78,9 @@ actsForJ delClosure p q
                                 )
                                 qms
 
-actsForM :: CoreDelClosure -> CoreMNorm -> CoreMNorm ->
+actsForM :: FlameRec -> Bool -> CoreMNorm -> CoreMNorm ->
             Maybe ActsForProof
-actsForM delClosure p q
+actsForM flrec isConf p q
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
@@ -95,7 +95,7 @@ actsForM delClosure p q
     disjProofs :: Maybe [ActsForProof]
     disjProofs = sequence $ map (\pb ->
                                   case mapMaybe (\qb ->
-                                                  actsForB delClosure pb qb)
+                                                  actsForB flrec isConf pb qb)
                                                 qbs
                                   of
                                     (pf:pfs) -> Just pf
@@ -104,14 +104,14 @@ actsForM delClosure p q
                                 pbs
 -- IDEA for transitivity.  If all given dels are expressed "primitively",
 -- then transitivity can be exploited as simple reachability via given dels.
-actsForB :: CoreDelClosure -> CoreBase -> CoreBase ->
+actsForB :: FlameRec -> Bool -> CoreBase -> CoreBase ->
             Maybe ActsForProof
-actsForB delClosure p q 
+actsForB flrec isConf p q 
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q  = Just AFRefl
   | otherwise = --pprTrace "actsForB" (ppr (p,q)) $
-    case find (== J [M [p]]) (superiors $ J [M [q]]) of
+    case find (== (substBase bounds isConf p)) (superiors $ J [M [q]]) of
       Just del -> Just $ AFDel (p,q)
       _ -> Nothing
   where
@@ -119,7 +119,11 @@ actsForB delClosure p q
     top = T
     bot :: CoreBase
     bot = B  
+    bounds = if isConf then confBounds flrec else integBounds flrec
+    --      XXX : what about structural superiors!?
+    --      might need to iterate on fixpoint here again
+    delClosure = if isConf then confClosure flrec else integClosure flrec
     superiors :: CoreJNorm -> [CoreJNorm]
     superiors q = case find ((== q) . fst) delClosure of
-                    Just (q, sups) -> sups
+                    Just (q, sups) -> map (substJNorm bounds isConf) sups
                     _ -> []

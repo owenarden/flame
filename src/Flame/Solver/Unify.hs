@@ -17,15 +17,9 @@ Maintainer :  Christiaan Baaij <christiaan.baaij@gmail.com>
 module Flame.Solver.Unify
   ( -- * 'Nat' expressions \<-\> 'Norm' terms
     --CType (..)
-    -- * Substitution on 'Norm' terms
-    UnifyItem (..)
-  , CoreUnify
-  , substsNorm
-  , substsSubst
     -- * Find unifiers
-  , UnifyResult (..)
-  , unifyPrins
-  , unifiers
+    SolverResult (..)
+  , solvePrins
     -- * Free variables in 'Norm' terms
   , fvNorm
   )
@@ -37,7 +31,7 @@ import Data.List     ((\\), intersect, mapAccumL)
 import UniqSet       (UniqSet, unionManyUniqSets, emptyUniqSet, unionUniqSets,
                        unitUniqSet)
 -- GHC API
-import Outputable    (Outputable (..), (<+>), ($$), text)
+import Outputable    (Outputable (..), (<+>), ($$), text, pprTrace)
 import TcPluginM     (TcPluginM, tcPluginTrace)
 import TcRnMonad     (Ct, ctEvidence, isGiven)
 import TcRnTypes     (ctEvPred)
@@ -52,102 +46,69 @@ import Flame.Solver.Data
 import Flame.Solver.Norm
 import Flame.Solver.ActsFor
 
--- | A substitution is essentially a list of (variable, 'Norm') pairs,
--- but we keep the original 'Ct' that lead to the substitution being
--- made, for use when turning the substitution back into constraints.
-type CoreUnify = UnifyItem TyVar Type
-
-data UnifyItem v c = SubstItem { siVar  :: v
-                               , siNorm  :: Norm v c
-                               }
-                   | UnifyItem { siLHS  :: Norm v c
-                               , siRHS  :: Norm v c
-                               }
-
-instance (Outputable v, Outputable c) => Outputable (UnifyItem v c) where
-  ppr (SubstItem {..}) = ppr siVar <+> text " := " <+> ppr siNorm
-  ppr (UnifyItem {..}) = ppr siLHS <+> text " :~ " <+> ppr siRHS
-
--- | Apply a substitution to a single normalised 'Norm' term
-substsNorm :: (Ord v, Ord c) => [UnifyItem v c] -> Norm v c -> Norm v c
-substsNorm []                   u = u
-substsNorm ((SubstItem {..}):s) u = substsNorm s (substNorm siVar siNorm u)
-substsNorm ((UnifyItem {}):s)   u = substsNorm s u
-
-substNorm :: (Ord v, Ord c) => v -> Norm v c -> Norm v c -> Norm v c
-substNorm tv sub (N c_u i_u) = N (substJNorm True tv sub c_u)
-                                 (substJNorm False tv sub i_u)
-
-substJNorm :: (Ord v, Ord c) => Bool -> v -> Norm v c -> JNorm v c -> JNorm v c
-substJNorm isConf tv e = foldr1 mergeJNormJoin . map (substMNorm isConf tv e) . unJ
-
-substMNorm :: (Ord v, Ord c) => Bool -> v -> Norm v c -> MNorm v c -> JNorm v c
-substMNorm isConf tv e = foldr1 mergeJNormMeet . map (substBase isConf tv e) . unM
-
-substBase :: (Ord v, Ord c) => Bool -> v -> Norm v c -> Base v c -> JNorm v c
-substBase _ _ _ B = J [M [B]]
-substBase _ _ _ T = J [M [T]]
-substBase _ _ _ p@(P s) = J [M [p]]
-substBase isConf tv (N c_u i_u) (V tv')
-  | tv == tv'            = if isConf then c_u else i_u
-  | otherwise            = J [M [V tv']]
-substBase isConf tv u (VarVoice tv')
-  | tv == tv'            = if isConf then
-                             J [M [B]] -- XXX: should have already been removed
-                           else
-                             integ (voiceOf u)
-  | otherwise            = J [M [VarVoice tv']]
-substBase isConf tv u (VarEye tv')
-  | tv == tv'            = if isConf then
-                             conf (eyeOf u)
-                           else
-                             J [M [B]] -- XXX: should have already been removed
-  | otherwise            = J [M [VarEye tv']]
-
--- | Apply a substitution to a substitution
-substsSubst :: (Ord v, Ord c) => [UnifyItem v c] -> [UnifyItem v c] -> [UnifyItem v c]
-substsSubst s = map subt
-  where
-    subt si@(SubstItem {..}) = si {siNorm = substsNorm s siNorm}
-    subt si@(UnifyItem {..}) = si {siLHS = substsNorm s siLHS, siRHS = substsNorm s siRHS}
-{-# INLINEABLE substsSubst #-}
-
--- | Result of comparing two 'Norm' terms, returning a potential substitution
--- list under which the two terms are equal.
-data UnifyResult
-  = Win              -- ^ Two terms are equal
-  | Lose             -- ^ Two terms are /not/ equal
-  | Draw [CoreUnify] -- ^ Two terms are only equal if the given substitution holds
-
-instance Outputable UnifyResult where
-  ppr Win          = text "Win"
-  ppr (Draw subst) = text "Draw" <+> ppr subst
-  ppr Lose         = text "Lose"
+---- | A substitution is essentially a list of (variable, 'Norm') pairs,
+---- but we keep the original 'Ct' that lead to the substitution being
+---- made, for use when turning the substitution back into constraints.
+--type CoreUnify = UnifyItem TyVar Type
+--
+---- | Result of comparing two 'Norm' terms, returning a potential substitution
+---- list under which the two terms are equal.
+data SolverResult
+  = Win                           -- ^ Two terms are equal
+  | Lose                          -- ^ Two terms are /not/ equal
+  | Draw (CoreBounds, CoreBounds) -- ^ Two terms are only equal if the given substitution holds
+--
+--instance Outputable UnifyResult where
+--  ppr Win          = text "Win"
+--  ppr (Draw subst) = text "Draw" <+> ppr subst
+--  ppr Lose         = text "Lose"
 
 -- | Given two 'Norm's @u@ and @v@, when their free variables ('fvNorm') are the
 -- same, then we 'Win' if @u@ and @v@ are equal, and 'Lose' otherwise.
 --
 -- If @u@ and @v@ do not have the same free variables, we result in a 'Draw',
 -- ware @u@ and @v@ are only equal when the returned 'CoreSubst' holds.
-unifyPrins :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> TcPluginM UnifyResult
-unifyPrins flrec ct u v = do
-  tcPluginTrace "unifyPrins" (ppr ct $$ ppr u $$ ppr v)
-  return (unifyPrins' flrec ct u v)
+solvePrins :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> TcPluginM SolverResult
+solvePrins flrec ct u v = do
+  tcPluginTrace "solvePrins" (ppr ct $$ ppr u $$ ppr v)
+  return (solvePrins' flrec ct u v)
 
-unifyPrins' :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> UnifyResult
-unifyPrins' flrec ct u v
-  -- TODO: Lose case? no free variables?
+solvePrins' :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> SolverResult
+solvePrins' flrec ct u v
   = case actsFor flrec u v of
       Just pf -> Win
-      Nothing -> Draw (filter diffFromConstraint (unifiers flrec ct u v))
-  where
-    -- A unifier is only a unifier if differs from the original constraint
-    diffFromConstraint (UnifyItem x y) = not (x == u && y == v)
-    diffFromConstraint _               = True
+      Nothing -> Lose
+        --Draw (confBounds flrec, integBounds flrec)
+  --where
+  --  -- A unifier is only a unifier if differs from the original constraint
+  --  diffFromConstraint (UnifyItem x y) = not (x == u && y == v)
+  --  diffFromConstraint _               = True
 
--- | Find unifiers for two Norm terms
-unifiers :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> [CoreUnify]
-unifiers flrec _ct s1 s2               = []
+---- | Find unifiers for two Norm terms
+--unifiers :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> [CoreUnify]
+--unifiers flrec ct (N cp ip) (N cq iq) =
+--  case (p, q) of
+--    (p@(N cp ip), q@(N cq (J [M [V v]]))) -> [SubstItem v (sub v bot)]
+--    (p@(J [M [V v]]), q) -> [SubstItem v (sub v q)]
+--    _ -> []
+-- where
+--   bot = (J [M [B]]) 
+--   isub v p = (N (J [M [V v]]) p)
+--   csub v p = (N p (J [M [V v]]))
+--   sub v p = if isConf then csub v p else isub v p
+--  (unifiers' flrec ct True cp cq) ++  (unifiers' flrec ct False ip iq)
+--
+--unifiers' :: FlameRec -> Ct -> Bool -> CoreJNorm -> CoreJNorm -> [CoreUnify]
+--unifiers' flrec _ct isConf p q =
+--  case (p, q) of
+--    (p, q@(J [M [V v]])) -> [SubstItem v (sub v bot)]
+--    (p@(J [M [V v]]), q) -> [SubstItem v (sub v q)]
+--    _ -> []
+-- where
+--   bot = (J [M [B]]) 
+--   isub v p = (N (J [M [V v]]) p)
+--   csub v p = (N p (J [M [V v]]))
+--   sub v p = if isConf then csub v p else isub v p
 
 --containsConstants :: CoreNorm -> Bool
 --containsConstants (N c_u i_u) = containsConstants' c_u || containsConstants' i_u 

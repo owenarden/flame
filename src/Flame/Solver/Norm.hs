@@ -7,6 +7,7 @@ import Data.Either   (partitionEithers)
 import Data.List     (sort, union, nub)
 import Data.Graph    (graphFromEdges, reachable, vertices)
 import Data.Function (on)
+import Data.Map.Strict (findWithDefault)
 
 -- GHC API
 import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace, showPpr)
@@ -235,15 +236,16 @@ flattenDelegations givens = foldl
   where
     cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
     mkM p = M [p]
- -- TODO: expand given constraints to "base form": conf or integ, no RHS conj, no LHS disj
- {- TODO:
+
+ {- 
+   TODO?
    - for each conjunction on the LHS, add a pseudo-node to the graph that is
        reachable from each conjunct and from which the intersection of the
        superiors of each conjunct are reachable.
    - for each disjunction on the RHS, add a pseudo-node to the graph that
        reaches the disjunction and is reachable from the intersection of
        the inferiors of each disjunct.
-   - fixpoint?
+   - compute fixpoint
  -}
 computeDelClosure :: [(CoreJNorm,CoreJNorm)] -> CoreDelClosure
 computeDelClosure givens =
@@ -272,7 +274,7 @@ computeDelClosure givens =
     initialEdges :: [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     initialEdges = [(inf, inf, union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
                                             $ concat [jsups | (jinf, _, jsups) <- structJoinEdges inf, jinf == inf])
-                                     $ concat [msups | (minf, _, msups) <- structJoinEdges inf, minf == inf])
+                                     $ concat [msups | (minf, _, msups) <- structMeetEdges inf, minf == inf])
                     | inf <- principals]
 
     principals :: [CoreJNorm]
@@ -300,3 +302,26 @@ computeDelClosure givens =
 
     computeStructEdges (graph, vtxToEdges, prinToVtx) vtx = []
 
+substJNorm :: (Ord v, Ord c) => Bounds v c -> Bool -> JNorm v c -> JNorm v c
+substJNorm bounds isConf = foldr1 mergeJNormJoin . map (substMNorm bounds isConf) . unJ
+
+substMNorm :: (Ord v, Ord c) => Bounds v c -> Bool -> MNorm v c -> JNorm v c
+substMNorm bounds isConf = foldr1 mergeJNormMeet . map (substBase bounds isConf) . unM
+
+substBase :: (Ord v, Ord c) => Bounds v c -> Bool -> Base v c -> JNorm v c
+substBase _ _ B = jbot
+substBase _ _ T = J [M [T]]
+substBase _ _ p@(P s) = J [M [p]]
+substBase bounds isConf (V tv) = findWithDefault jbot tv bounds
+substBase bounds isConf (VarVoice tv) = 
+  if isConf then
+    jbot -- XXX: should have already been removed
+  else
+    integ (voiceOf (N (findWithDefault jbot tv bounds) jbot))
+substBase bounds isConf (VarEye tv) = 
+  if isConf then
+    conf (eyeOf (N jbot (findWithDefault jbot tv bounds)))
+  else
+    jbot -- XXX: should have already been removed
+
+jbot = J [M [B]]

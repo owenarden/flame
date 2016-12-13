@@ -150,41 +150,45 @@ instance Outputable SimplifyResult where
   ppr (Simplified evs) = text "Simplified" $$ ppr evs
   ppr (Impossible eq)  = text "Impossible" <+> ppr eq
 
+-- TODO: need to change from evs to "sovled" cts, then generate evidence all at once.
 simplifyPrins :: FlameRec
              -> [ActsForCt]
              -> [ActsForCt]
              -> TcPluginM SimplifyResult
-simplifyPrins flrec givens eqs =
-    tcPluginTrace "simplifyPrins" (ppr eqs) >> simples [] [] [] eqs
+simplifyPrins _flrec givens eqs =
+    tcPluginTrace "simplifyPrins" (ppr eqs) >> simples _flrec [] [] [] eqs
   where
-    simples :: [CoreUnify]
+    simples :: FlameRec
             -> [((EvTerm, Ct), [Ct])]
             -> [ActsForCt]
             -> [ActsForCt]
             -> TcPluginM SimplifyResult
-    simples _subst evs _xs [] = return (Simplified evs)
-    simples subst evs xs (eq@(ct,(u,v)):eqs') = do
+    simples _flrec evs _xs [] = do
+      evM <- evMagic flrec' ct $ boundsToPredTypes _flrec 
+      case evM of
+        Nothing -> return (Simplified ev)
+        Just ev -> return (Simplified (ev:evs))
+    simples flrec evs xs (eq@(ct,(u,v)):eqs') = do
       -- XXX: this is inefficient. would be better to only recompute
       --      parts of closure that have TyVars that were substituted
-      let (conf_givens_flat, integ_givens_flat) =
-            flattenDelegations $ map (substsGiven subst) givens
+      -- UPDATE: maybe don't need to do this in the loop anymore!
+      --         vars are only substituted in actsfor given a set of bounds.
+      --      BUT: what about structural superiors?
+      let (conf_givens_flat, integ_givens_flat) = flattenDelegations givens
           conf_closure =  computeDelClosure conf_givens_flat
           integ_closure = computeDelClosure integ_givens_flat
           flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure}
-      ur <- unifyPrins flrec' ct (substsNorm subst u) (substsNorm subst v)
-      tcPluginTrace "unifyPrins result" (ppr ur)
+      -- TODO: solve on uninstantiated vars. return updated bounds
+      ur <- solvePrins flrec' ct u v
+      tcPluginTrace "solvePrins result" (ppr ur)
       case ur of
         Win -> do
           evs' <- maybe evs (:evs) <$> evMagic flrec' ct []
-          simples subst evs' [] (xs ++ eqs')
+          simples evs' [] (xs ++ eqs')
         Lose -> return (Impossible eq)
-        Draw [] -> simples subst evs (eq:xs) eqs'
-        Draw subst' -> do
-          evM <- evMagic flrec' ct (map (unifyItemToPredType flrec') subst')
-          case evM of
-            Nothing -> simples subst evs xs eqs'
-            Just ev ->
-              simples (substsSubst subst' subst ++ subst')
+        -- Draw [] -> simples subst evs (eq:xs) eqs'
+        Draw (cbnds, ibnds) -> do
+                        simples (substsSubst subst' subst ++ subst')
                       (ev:evs) [] (xs ++ eqs')
     substsGiven s (ct, (p, q)) = (substsNorm s p, substsNorm s q) 
 
@@ -204,8 +208,8 @@ toActsFor flrec ct = case classifyPredType $ ctEvPred $ ctEvidence ct of
                          return (ct, (sup, inf))
                      af -> Nothing
                          
-unifyItemToPredType :: FlameRec -> CoreUnify -> PredType
-unifyItemToPredType flrec ui =
+boundsToPredTypes :: CoreBounds -> [PredType]
+boundsToPredTypes flrec =
     mkPrimEqPred ty1 ty2
   where
     ty1 = case ui of
@@ -216,42 +220,42 @@ unifyItemToPredType flrec ui =
             UnifyItem {..} -> reifyNorm flrec siRHS
 
 evMagic :: FlameRec -> Ct -> [PredType] -> TcPluginM (Maybe ((EvTerm, Ct), [Ct]))
-evMagic flrec ct preds = case classifyPredType $ ctEvPred $ ctEvidence ct of
+evMagic flrec ct preds = -- pprTrace "Draw" (ppr preds) $ 
+ case classifyPredType $ ctEvPred $ ctEvidence ct of
   EqPred NomEq af fsk -> --pprTrace "EQ PRED: " ((ppr af) <+> (ppr fsk)) $
     doEQMagic af
-  IrredPred af -> --pprTrace "IRRED PRED: " ((ppr ct) <+> (ppr af) <+> (ppr preds)) $
+  IrredPred af -> -- pprTrace "IRRED PRED: " ((ppr ct) <+> (ppr af) <+> (ppr preds)) $
     doEQMagic af
-  ClassPred cls (af:afs) | isCTupleClass cls ->
-    doEQMagic af -- XXX: HACK: only using first one..
-                 -- Still don't understand how evidence terms are used.
+  ClassPred cls (af:afs) | isCTupleClass cls -> doEQMagic af -- XXX: HACK: only using first one..
+                                                             -- Still don't understand how evidence terms are used.
   _ -> return Nothing
  where
-   doEQMagic af = case af of
-     -- This is based on Adam Gundry's uom-plugin. Ignoring newWanted for now.
-     TyConApp tc [p,q] | tc == (actsfor flrec) -> return $ (Just ((mkActsForEvidence af p q, ct), []))
-     _ -> return Nothing
    --doEQMagic af = case af of
-   --  TyConApp tc [p,q] | tc == (actsfor flrec) -> do
-   --    holes <- replicateM (length preds) newCoercionHole
-   --    let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
-   --        --ctEv      = mkUnivCo (PluginProv "flame") Nominal p q
-   --        ctEv      = mkActsForEvidence af p q
-   --        holeEvs   = zipWith (\h p -> uncurry (mkHoleCo h Nominal) (getEqPredTys p)) holes preds
-   --        natReflCo = mkNomReflCo $ TyConApp (kprin flrec) []
-   --        natCoBndr = (,natReflCo) <$> (newFlexiTyVar $  TyConApp (kprin flrec) [])
-   --    forallEv <- mkForAllCos <$> (replicateM (length preds) natCoBndr) <*> pure ctEv
-   --    let finalEv = foldl mkInstCo forallEv holeEvs
-   --    return (Just ((EvCoercion finalEv, ct),newWanted))
+   --  -- This is based on Adam Gundry's uom-plugin. Ignoring newWanted for now.
+   --  TyConApp tc [p,q] | tc == (actsfor flrec) ->
+   --     -- return $ (Just ((mkActsForEvidence af p q, ct), newWanted))
    --  _ -> return Nothing
+   doEQMagic af = case af of
+     TyConApp tc [p,q] | tc == (actsfor flrec) -> do
+       holes <- replicateM (length preds) newCoercionHole
+       let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
+           ctEv      = mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af
+           holeEvs   = zipWith (\h p -> uncurry (mkHoleCo h Nominal) (getEqPredTys p)) holes preds
+           natReflCo = mkNomReflCo $ TyConApp (kprin flrec) []
+           natCoBndr = (,natReflCo) <$> (newFlexiTyVar $  TyConApp (kprin flrec) [])
+       forallEv <- mkForAllCos <$> (replicateM (length preds) natCoBndr) <*> pure ctEv
+       let finalEv = foldl mkInstCo forallEv holeEvs
+       return (Just ((EvDFunApp (dataConWrapId heqDataCon) [typeKind p, typeKind q, p, q] [evByFiat "flame" p q] `EvCast` finalEv, ct), newWanted))
+     _ -> return Nothing
 
 
 -- | Make up evidence for a fake equality constraint @t1 ~~ t2@ by
 -- coercing bogus evidence of type @t1 ~ t2@ (or its heterogeneous
 -- variant, in GHC 8.0).
 -- stolen from https://github.com/adamgundry/uom-plugin
-mkActsForEvidence :: Type -> Type -> Type -> EvTerm
-mkActsForEvidence af p q = EvDFunApp (dataConWrapId heqDataCon) [typeKind p, typeKind q, p, q] [evByFiat "flame" p q]
-                       `EvCast` mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af
+--mkActsForEvidence :: Type -> Type -> Type -> EvTerm
+--mkActsForEvidence af p q = EvDFunApp (dataConWrapId heqDataCon) [typeKind p, typeKind q, p, q] [evByFiat "flame" p q]
+--                       `EvCast` mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af
  
 unifyItemToCt :: CtLoc
               -> PredType

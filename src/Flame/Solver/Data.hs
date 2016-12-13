@@ -3,6 +3,7 @@
 module Flame.Solver.Data where
 -- External
 import Data.IORef (IORef)
+import Data.Map.Strict (Map)
 
 -- GHC API
 import TyCon      (TyCon)
@@ -88,6 +89,8 @@ type CoreBase       = Base TyVar  Type
 type DelClosure v s = [(JNorm v s, [JNorm v s])]
 type CoreDelClosure = DelClosure TyVar  Type
 
+type Bounds v s = Map v (JNorm v s)
+type CoreBounds = Bounds TyVar Type
 
 data FlameRec = FlameRec {
    --discharged   :: IORef [Ct],
@@ -103,5 +106,7 @@ data FlameRec = FlameRec {
    keye         :: TyCon,
    actsfor      :: TyCon,
    confClosure  :: CoreDelClosure,
-   integClosure :: CoreDelClosure
+   integClosure :: CoreDelClosure,
+   confBounds   :: CoreBounds,
+   integBounds  :: CoreBounds
  }
