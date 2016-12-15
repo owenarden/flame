@@ -3,29 +3,22 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PostfixOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
+--{-# OPTIONS_GHC -fdefer-type-errors -fplugin Flame.Solver #-}
 
-import Flame.Principals
 import Flame.Assert
+import Flame.Principals
+import Flame.Runtime.Principals
 
-type Alice = KName "Alice"
-type Bob = KName "Bob"
-
-test1 :: (KTop ≽ KBot) => String
-test1 = "Hello"
-test2 :: (((C KBot) ∧ (I KTop)) ⊑ ((C KTop) ∧ (I KBot))) => String
-test2 = "World"
-test3 :: (p ⊑ p) => SPrin p -> String
-test3 p = "World"
-
-test4 :: (Alice ≽ Bob) => String
-test4 = "World"
-
-test5 :: (KBot ≽ KTop) => String
-test5 = test1
-
+import Control.DeepSeq (force, NFData)
+import Control.Exception (evaluate, try, throwIO, TypeError(..))
+import Test.ShouldNotTypecheck
+import Test.Tasty
+import Test.Tasty.HUnit
+       
 eqTSym :: (l === l') => SPrin l -> SPrin l' -> ()
-eqTSym l l' = assertEq l' l
+eqTSym l l' = assertEq l l'
 
 eqTTrans :: (p ≽ q, q ≽ r) => SPrin p -> SPrin q -> SPrin r -> ()
 eqTTrans p q r = assertActsFor p r
@@ -33,7 +26,6 @@ eqTTrans p q r = assertActsFor p r
 eqTTrans2 :: (p ≽ q, q ≽ r, r ≽ q, q ≽ p) => SPrin p -> SPrin q -> SPrin r -> ()
 eqTTrans2 p q r = assertEq p r
 
---TODO: these givens are not processed correctly...
 eqTTrans3 :: (p ⊑ q, q ⊑ r) => SPrin p -> SPrin q -> SPrin r -> ()
 eqTTrans3 p q r = assertFlowsTo p r
 
@@ -114,7 +106,7 @@ eqTBotConf = assertEq (SBot*→) SBot
 
 eqTBotInteg :: ()
 eqTBotInteg = assertEq (SBot*←) SBot
-
+ 
 --assertCBT0 :: (I (C KBot) ≽ I (C KTop)) => ()
 --assertCBT0 = ()
 --testCBT0 = withTrans ((SBot*→)*←) SBot ((STop*→)*←) assertCBT0
@@ -156,4 +148,53 @@ flTConfConjL :: SPrin p ->  SPrin q -> ()
 flTConfConjL p q = assertFlowsTo (p*→) ((p *∧ q)*→)  
 
 main :: IO ()
-main = print test1 --(test1 ++ test2 ++ (test3 STop)) 
+main = undefined
+
+--main = defaultMain tests
+-- XXX the below should supposedly work, but doesn't seem to...
+---- The type for GHC-8.0.1 is a hack, see https://github.com/CRogers/should-not-typecheck/pull/6#issuecomment-211520177
+--shouldTypecheck :: NFData a => (() ~ ()) => a -> Assertion
+--shouldTypecheck a = do
+--  result <- try (evaluate $ force a)
+--  case result of
+--    Right _ -> return ()
+--    Left e@(TypeError msg) -> assertFailure msg
+
+-- tests :: TestTree
+-- tests = testGroup "flame"
+--   [ testGroup "Equality constraint tests"
+--     [ testCase "eqTSym" $
+--       shouldTypecheck (eqTSym SBot STop),
+--       testCase "eqTTrans" $
+--       shouldTypecheck $ (eqTTrans STop SBot SBot) == ()
+--       --testCase "eqTTrans'" $ shouldTypecheck (eqTTrans STop (st p) (st q)), 
+--       --testCase "eqTTrans2" $ shouldTypecheck (eqTTrans2 SBot SBot SBot), 
+--       --testCase "eqTTrans3" $ shouldTypecheck (eqTTrans3 SBot SBot SBot), 
+--       --testCase "eqTTrans4" $ shouldTypecheck (eqTTrans4 SBot SBot SBot), 
+--       --testCase "eqTConjComm" $ shouldTypecheck (eqTConjComm SBot SBot), 
+--       --testCase "eqTDisjComm" $ shouldTypecheck (eqTDisjComm SBot SBot), 
+--       --testCase "eqTConjAssoc" $ shouldTypecheck (eqTConjAssoc SBot SBot SBot), 
+--       --testCase "eqTDisjAssoc" $ shouldTypecheck (eqTDisjAssoc SBot SBot SBot), 
+--       --testCase "eqTDisjAbsorb" $ shouldTypecheck (eqTDisjAbsorb SBot SBot), 
+--       --testCase "eqTConjAbsorb" $ shouldTypecheck (eqTConjAbsorb SBot SBot), 
+--       --testCase "eqTConjIdemp" $ shouldTypecheck (eqTConjIdemp SBot), 
+--       --testCase "eqTDisjIdemp" $ shouldTypecheck (eqTDisjIdemp SBot), 
+--       --testCase "eqTConjIdent" $ shouldTypecheck (eqTConjIdent SBot), 
+--       --testCase "eqTDisjIdent" $ shouldTypecheck (eqTDisjIdent SBot), 
+--       --testCase "eqTConjTop" $ shouldTypecheck (eqTConjTop SBot), 
+--       --testCase "eqTDisjBot" $ shouldTypecheck (eqTDisjBot SBot), 
+--       --testCase "eqTConjDistDisj" $ shouldTypecheck (eqTConjDistDisj SBot SBot SBot), 
+--       --testCase "eqTConjConf" $ shouldTypecheck (eqTConjConf SBot SBot), 
+--       --testCase "eqTConjInteg" $ shouldTypecheck (eqTConjInteg SBot SBot), 
+--       --testCase "eqTDisjConf" $ shouldTypecheck (eqTDisjConf SBot SBot), 
+--       --testCase "eqTDisjInteg" $ shouldTypecheck (eqTDisjInteg SBot SBot), 
+--       --testCase "eqTConfIdemp" $ shouldTypecheck (eqTConfIdemp SBot), 
+--       --testCase "eqTIntegIdemp" $ shouldTypecheck (eqTIntegIdemp SBot), 
+--       --testCase "eqTConfInteg" $ shouldTypecheck (eqTConfInteg SBot), 
+--       --testCase "eqTIntegConf" $ shouldTypecheck (eqTIntegConf SBot), 
+--       --testCase "eqTConfDisjInteg" $ shouldTypecheck (eqTConfDisjInteg SBot SBot), 
+--       --testCase "eqTConfIntegBasis" $ shouldTypecheck (eqTConfIntegBasis SBot), 
+--       --testCase "eqTBotConf" $ shouldTypecheck (eqTBotConf ), 
+--       --testCase "eqTBotInteg" $ shouldTypecheck (eqTBotInteg)
+--     ]
+--   ]

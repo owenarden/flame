@@ -189,18 +189,19 @@ eyeOf (N _ integ) = N (wrapVars integ) (J [M [B]])
 
 -- | Convert a 'SOP' term back to a type of /kind/ 'GHC.TypeLits.Nat'
 reifyNorm :: FlameRec -> CoreNorm -> Type
-reifyNorm flrec (N (J cms) (J ims)) =
-  let c' = combineM cms in
-  let i' = combineM ims in
+reifyNorm flrec (N cp ip) =
+  let c' = reifyJNorm flrec cp in
+  let i' = reifyJNorm flrec ip in
     mkTyConApp (kconj flrec)
       [mkTyConApp (kconf flrec) [c'],
        mkTyConApp (kinteg flrec) [i']]
   where
-    combineM :: [CoreMNorm] -> Type
-    combineM []     = mkTyConApp (kbot flrec) []
-    combineM [p]    = reifyMNorm flrec p
-    combineM (p:ps) = let es = combineM ps
-                      in mkTyConApp (kconj flrec) [reifyMNorm flrec p, es]
+
+reifyJNorm :: FlameRec -> CoreJNorm -> Type
+reifyJNorm flrec (J [])     = mkTyConApp (kbot flrec) []
+reifyJNorm flrec (J [p])    = reifyMNorm flrec p
+reifyJNorm flrec (J (p:ps)) = let es = reifyJNorm flrec (J ps)
+                              in mkTyConApp (kconj flrec) [reifyMNorm flrec p, es]
 
 reifyMNorm :: FlameRec -> CoreMNorm -> Type
 reifyMNorm flrec = foldr1 (\t1 t2 -> mkTyConApp (kdisj flrec) [t1,t2])

@@ -57,11 +57,11 @@ data SolverResult
   = Win                           -- ^ Two terms are equal
   | Lose                          -- ^ Two terms are /not/ equal
   | Draw (CoreBounds, CoreBounds) -- ^ Two terms are only equal if the given substitution holds
---
---instance Outputable UnifyResult where
---  ppr Win          = text "Win"
---  ppr (Draw subst) = text "Draw" <+> ppr subst
---  ppr Lose         = text "Lose"
+
+instance Outputable SolverResult where
+  ppr Win          = text "Win"
+  ppr (Draw subst) = text "Draw" <+> ppr subst
+  ppr Lose         = text "Lose"
 
 -- | Given two 'Norm's @u@ and @v@, when their free variables ('fvNorm') are the
 -- same, then we 'Win' if @u@ and @v@ are equal, and 'Lose' otherwise.
