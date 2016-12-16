@@ -141,7 +141,8 @@ decideActsFor flrec givens  _deriveds wanteds = do
             return (TcPluginOk solved newWanteds)
           Impossible eq ->
             pprTrace "impossible " (ppr eq) $
-            return (TcPluginContradiction [fromActsFor eq])
+            -- return (TcPluginContradiction [fromActsFor eq])
+            return (TcPluginOk [] [])
 
 type ActsForCt = (Ct, (CoreNorm, CoreNorm))
 
