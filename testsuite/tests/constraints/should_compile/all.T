@@ -4,7 +4,6 @@
 #   opts.extra_hc_opts = '-fno-warn-incomplete-patterns'
 #setTestOpts(f)
 
-#test('basic_constraints', normal, compile, ['-fplugin Flame.Solver'])
 test('eqTSym', normal, compile, ['-fplugin Flame.Solver'])
 test('eqTTrans', normal, compile, ['-fplugin Flame.Solver'])
 test('eqTTrans2', normal, compile, ['-fplugin Flame.Solver'])
@@ -35,3 +34,4 @@ test('eqTConfDisjInteg', normal, compile, ['-fplugin Flame.Solver'])
 test('eqTConfIntegBasis', normal, compile, ['-fplugin Flame.Solver'])
 test('eqTBotConf', normal, compile, ['-fplugin Flame.Solver'])
 test('eqTBotInteg', normal, compile, ['-fplugin Flame.Solver'])
+test('eqTNomEq', normal, compile, ['-fplugin Flame.Solver'])

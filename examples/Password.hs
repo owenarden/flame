@@ -6,12 +6,11 @@ import Prelude hiding (print, putStr, putStrLn, getLine)
 import Data.List
 import Data.Proxy
 import Debug.Trace
-import Network.Socket
 
-import Flame.Data.Principals
-import Flame.Type.Principals
-import Flame.Type.IFC 
-import Flame.IO
+import Flame.Runtime.IO
+import Flame.Runtime.Principals
+import Flame.Principals
+import Flame.IFC 
 
 {- A static principal for Alice -}
 alice  = SName (Proxy :: Proxy "Alice")
@@ -43,8 +42,8 @@ chkPass client guess =
 
 {- | Get the password from the client -}
 inputPass :: DPrin client
-            -> IFCHandle (I client)
-            -> IFCHandle (C client)
+            -> FLAHandle (I client)
+            -> FLAHandle (C client)
             -> IFC IO (I Alice) (I Alice) String
 inputPass client_ stdin stdout = do
       {- Endorse the guess to have Alice's integrity -}

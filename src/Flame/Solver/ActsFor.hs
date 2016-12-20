@@ -2,6 +2,7 @@
 module Flame.Solver.ActsFor
        ( ActsForProof(..)
        , actsFor
+       , actsForJ
        )
 where
 
@@ -56,7 +57,7 @@ actsForJ flrec isConf p q
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = --pprTrace "actsForJ" (ppr (p,q)) $
+  | otherwise = pprTrace "actsForJ" (ppr (p,q)) $
                 AFConj <$> conjProofs 
   where
     top :: CoreJNorm
@@ -106,17 +107,18 @@ actsForM flrec isConf p q
 -- then transitivity can be exploited as simple reachability via given dels.
 actsForB :: FlameRec -> Bool -> CoreBase -> CoreBase ->
             Maybe ActsForProof
-actsForB flrec isConf p q 
+actsForB flrec isConf _p q 
   | p == top = Just AFTop
   | q == bot = Just AFBot
-  | p == q  = Just AFRefl
-  | otherwise = --pprTrace "actsForB" (ppr (p,q)) $
-    case find (== (substBase bounds isConf p)) (superiors $ J [M [q]]) of
-      Just del -> Just $ AFDel (p,q)
+  | p == J [M [q]]  = Just AFRefl
+  | otherwise = pprTrace "actsForB" (ppr (p,q)) $
+    case find (== p) (superiors $ J [M [q]]) of
+      Just del -> Just $ AFDel (_p,q) -- TODO: encode bounds in proof
       _ -> Nothing
   where
-    top :: CoreBase
-    top = T
+    p = substBase bounds isConf _p
+    top :: CoreJNorm
+    top = J [M [T]]
     bot :: CoreBase
     bot = B  
     bounds = if isConf then confBounds flrec else integBounds flrec

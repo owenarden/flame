@@ -32,7 +32,9 @@ where
 import Control.Arrow       (second)
 import Control.Monad       (replicateM)
 import Data.Maybe          (mapMaybe, maybeToList, catMaybes)
-import Data.Map.Strict     (foldlWithKey, empty)
+import Data.Map.Strict     (foldlWithKey, empty, fromList, unionWith, findWithDefault, union)
+import UniqSet             (UniqSet, unionManyUniqSets, emptyUniqSet, unionUniqSets,
+                             unitUniqSet, uniqSetToList)
 
 -- GHC API
 import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
@@ -125,7 +127,8 @@ decideActsFor flrec givens  _deriveds wanteds = do
     -- GHC 7.10.1 puts deriveds with the wanteds, so filter them out
     let wanteds' = filter (isWanted . ctEvidence) wanteds
     let unit_wanteds = concat $ map (toActsFor flrec) wanteds'
-    -- XXX: natnormalise zonkCt's these, but that appears to remove the ones I care about.
+    -- XXX: natnormalise zonkCt's these givens, but that appears to remove the ones I care about.
+    -- TODO: should also extract NomEq predicates on principal vars to peg their bounds: just subst them everywhere, I guess?
     let unit_givens = concat $ map (toActsFor flrec) givens
     --pprTrace "wanted: " (ppr unit_wanteds) $
     case unit_wanteds of
@@ -140,7 +143,7 @@ decideActsFor flrec givens  _deriveds wanteds = do
                 newWanteds = snd evs
             return (TcPluginOk solved newWanteds)
           Impossible eq ->
-            pprTrace "impossible " (ppr eq) $
+            {- pprTrace "failed: " (ppr eq) $ -}
             -- return (TcPluginContradiction [fromActsFor eq])
             return (TcPluginOk [] [])
 
@@ -169,8 +172,17 @@ simplifyPrins flrec givens eqs =
         conf_closure =  computeDelClosure conf_givens_flat
         integ_closure = computeDelClosure integ_givens_flat
         flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure}
-    in tcPluginTrace "simplifyPrins" (ppr eqs) >> simples flrec' [] [] eqs
+    in pprTrace "simplify: " (ppr eqs) $ tcPluginTrace "simplifyPrins" (ppr eqs) >> simples flrec' [] [] eqs
   where
+    confEqToVarDeps = map (\(ct, eq@(N p _, N q _)) ->  (eq, uniqSetToList $ fvJNorm q)) eqs
+    confVarToEqDeps = foldl (\deps (eq, vars) -> 
+                              unionWith (unionUniqSets) (fromList [(v, unitUniqSet eq) | v <- vars]) deps)
+                            emptyUniqSet confEqToVarDeps
+    integEqToVarDeps = map (\(ct, eq@(N _ p, N _ q)) ->  (eq, uniqSetToList $ fvJNorm q)) eqs
+    integVarToEqDeps = foldl (\deps (eq, vars) -> 
+                              unionWith (unionUniqSets) (fromList [(v, unitUniqSet eq) | v <- vars]) deps)
+                            emptyUniqSet integEqToVarDeps
+
     simples :: FlameRec
             -> [ActsForCt]
             -> [ActsForCt]
@@ -181,17 +193,49 @@ simplifyPrins flrec givens eqs =
       (c_ev, c_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes True flrec 
       (i_ev, i_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes False flrec 
       return $ Simplified (c_ev ++ i_ev, c_wanted ++ i_wanted)
-    simples flrec solved xs (af@(ct,(u,v)):afs') = do
+    simples flrec solved xs (af@(ct,(u,v)):afs) = do
       -- solve on uninstantiated vars. return updated bounds
       ur <- solvePrins flrec ct u v
-      tcPluginTrace "solvePrins result" (ppr ur)
+      pprTrace "solvePrins" (ppr ur) $ tcPluginTrace "solvePrins result" (ppr ur)
       case ur of
-        Win -> simples flrec (af:solved) [] (xs ++ afs')
-        Lose -> return (Impossible af)
-        -- Draw [] -> simples subst evs (af:xs) afs'
-        Draw (cbnds, ibnds) -> -- update bounds
-          simples flrec (af:solved) [] (xs ++ afs')
-
+        (Win, Win) -> simples flrec (af:solved) [] (xs ++ afs)
+        (Lose, _) -> pprTrace "conf: could not satisfy" ((ppr af) <+> (ppr (confBounds flrec))) $ return (Impossible af)
+        (_, Lose) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible af)
+        (cnf, intg) -> -- update bounds
+          -- update bounds and re-solve: this ensures all members of solved are only added via 'Win'
+          let (confChanged, new_confBounds) = new_bounds flrec True cnf
+              (integChanged, new_integBounds) = new_bounds flrec False cnf
+              (solved', to_awake) = wakeup solved confChanged integChanged
+          in simples flrec{confBounds = new_confBounds, integBounds = new_integBounds}
+                  solved' (to_awake ++ xs) (af:afs)
+    wakeup solved confchg integchg = let confDeps = foldl (\deps v ->
+                                                         (findWithDefault emptyUniqSet v confVarToEqDeps) `unionUniqSets` deps)
+                                                       emptyUniqSet
+                                                       confchg
+                                         integDeps = foldl (\deps v ->
+                                                         (findWithDefault emptyUniqSet v integVarToEqDeps) `unionUniqSets` deps)
+                                                       emptyUniqSet
+                                                       integchg
+                                  in partition (\eq -> not (elementOfUniqSet eq confDeps) && not (elementOfUniqSet eq integDeps)) solved
+    new_bounds flrec isConf result =
+      case result of
+        -- TODO: need to "wake up" equations that depend on changed variables
+        -- af -> v: where v is in LHS of af
+        -- There is a dependency from af to all variables that occur on
+        -- the LHS of af, as the bounds on these variables may be modified
+        -- (upwards) as a result of solving eqn.
+        --  
+        -- v -> af: where v is in RHS of af
+        -- There is a dependency from all variables on the RHS of af to af,
+        -- because modifying (upwards) the bounds on these variables may cause eqn
+        -- to no longer be satisfied.
+        ChangeBounds bnds -> let changed = fromList bnds
+                             in ( keys changed
+                                , union changed
+                                        (if isConf then (confBounds flrec) else (integBounds flrec)))
+        Win -> if isConf then (confBounds flrec) else (integBounds flrec)
+        Lose -> error "should not happen"
+        
 -- Extract the actsfor constraints
 toActsFor :: FlameRec -> Ct -> [ActsForCt]
 toActsFor flrec ct = case classifyPredType $ ctEvPred $ ctEvidence ct of
