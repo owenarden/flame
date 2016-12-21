@@ -36,11 +36,11 @@ where
 
 -- external
 import Control.Arrow              (second)
-import Control.Monad              (replicateM)
+import Control.Monad              (replicateM, msum)
 import Data.List                  (partition)
-import qualified Data.Set as S    (union, empty, singleton, notMember)
+import qualified Data.Set as S    (union, empty, singleton, notMember, toList)
 import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
-import Data.Map.Strict            (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList)
+import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList, mapWithKey, keysSet, elems, lookup)
 -- GHC API
 import UniqSet             (uniqSetToList, unionUniqSets)
 import TcType              (isSkolemTyVar)
@@ -205,9 +205,11 @@ simplifyPrins flrec givens afcts =
             -> TcPluginM SimplifyResult
     simples flrec solved [] = do
       let solved_cts = map (lookupCT . fst) solved
-      (c_ev, c_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes True flrec 
-      (i_ev, i_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes False flrec 
-      return $ Simplified (c_ev ++ i_ev, c_wanted ++ i_wanted)
+      --(c_ev, c_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes True flrec 
+      --(i_ev, i_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes False flrec 
+      preds <- boundsToPredTypes flrec 
+      (ev, wanted) <- evMagic flrec solved_cts preds
+      return $ Simplified (ev, wanted)
     simples flrec solved (af@(i,(u,v)):iafs) = do
       -- solve on uninstantiated vars. return updated bounds
       ur <- solvePrins flrec u v
@@ -268,15 +270,27 @@ toActsFor flrec ct = case classifyPredType $ ctEvPred $ ctEvidence ct of
                          return (ct, (sup, inf))
                      af -> Nothing
                          
-boundsToPredTypes :: Bool -> FlameRec -> [PredType]
-boundsToPredTypes isConf flrec = 
-  foldlWithKey mkPredForVarBound [] bounds
+--- XXX: still a little unsure of this.  Are we under-constraining the new TyVars?
+boundsToPredTypes :: FlameRec -> TcPluginM [PredType]
+boundsToPredTypes flrec = do
+   ps <- mapM (\v -> do
+                    c <- newFlexiTyVar $ TyConApp (kprin flrec) []
+                    i <- newFlexiTyVar $ TyConApp (kprin flrec) []
+                    let basePred = mkPrimEqPred (mkTyVarTy v)
+                                    (mkTyConApp (kconj flrec)
+                                     [(mkTyConApp (kconf flrec) [reifyBase flrec (V c)]), 
+                                      (mkTyConApp (kinteg flrec) [reifyBase flrec (V i)])])
+                        confPred = mkPrimEqPred (mkTyVarTy c)
+                                                (reifyJNorm flrec $
+                                                 findWithDefault jbot v (confBounds flrec))
+                        integPred = mkPrimEqPred (mkTyVarTy i)
+                                                (reifyJNorm flrec $ 
+                                                 findWithDefault jbot v (integBounds flrec))
+                    return $ [basePred, confPred, integPred])
+                  (S.toList allVars)
+   return $ concat ps
   where
-    proj = if isConf then (kconf flrec) else (kinteg flrec)
-    bounds = if isConf then (confBounds flrec) else (integBounds flrec)
-    mkPredForVarBound preds k bound =
-      (mkPrimEqPred (mkTyConApp proj [mkTyVarTy k])
-                    (mkTyConApp proj [reifyJNorm flrec bound])):preds
+    allVars = (keysSet $ confBounds flrec) `S.union` (keysSet $ integBounds flrec) 
 
 evMagic :: FlameRec -> [Ct] -> [PredType] -> TcPluginM ([(EvTerm, Ct)], [Ct])
 evMagic flrec cts preds = -- pprTrace "Draw" (ppr preds) $ 
@@ -310,16 +324,6 @@ evMagic flrec cts preds = -- pprTrace "Draw" (ppr preds) $
                                 [evByFiat "flame" p q] `EvCast` finalEv, ct')
                 _ -> return Nothing) afcts
        return (catMaybes evs, newWanted)
-   --go holeEvs coBndr (af,ct) = 
-   --           TyConApp tc [p,q] | tc == (actsfor flrec) -> do
-   --             let ctEv = mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af
-   --             forallEv <- mkForAllCos <$> (replicateM (length preds) coBndr) <*> pure ctEv
-   --             let finalEv = foldl mkInstCo forallEv holeEvs
-   --             Just (EvDFunApp (dataConWrapId heqDataCon)
-   --                           [typeKind p, typeKind q, p, q]
-   --                           [evByFiat "flame" p q] `EvCast` finalEv, ct)
-   --           _ -> Nothing
-   -- 
 
 -- | Make up evidence for a fake equality constraint @t1 ~~ t2@ by
 -- coercing bogus evidence of type @t1 ~ t2@ (or its heterogeneous

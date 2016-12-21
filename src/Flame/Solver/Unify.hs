@@ -27,7 +27,6 @@ module Flame.Solver.Unify
 where
 
 -- External
-import Data.Function (on)
 import Data.List     ((\\), intersect, mapAccumL)
 import UniqSet       (UniqSet, unionManyUniqSets, emptyUniqSet, unionUniqSets,
                        unitUniqSet, uniqSetToList)
@@ -35,6 +34,7 @@ import Data.Map.Strict (insert, findWithDefault)
 
 -- GHC API
 import Outputable    (Outputable (..), (<+>), ($$), text, pprTrace)
+import TcType     (isSkolemTyVar)
 import TcPluginM     (TcPluginM, tcPluginTrace)
 import TcRnMonad     (Ct, ctEvidence, isGiven)
 import TcRnTypes     (ctEvPred)
@@ -110,12 +110,9 @@ fvMNorm :: CoreMNorm -> UniqSet TyVar
 fvMNorm = unionManyUniqSets . map fvBase . unM
 
 fvBase :: CoreBase -> UniqSet TyVar
-fvBase (P _)   = emptyUniqSet
-fvBase B   = emptyUniqSet
-fvBase T   = emptyUniqSet
-fvBase (V v)   = unitUniqSet v
-fvBase (VarVoice v)   = unitUniqSet v
-fvBase (VarEye v)   = unitUniqSet v
-
-eqFV :: CoreNorm -> CoreNorm -> Bool
-eqFV = (==) `on` fvNorm
+fvBase (P _) = emptyUniqSet
+fvBase B     = emptyUniqSet
+fvBase T     = emptyUniqSet
+fvBase (V v)        = if isSkolemTyVar v then emptyUniqSet else unitUniqSet v
+fvBase (VarVoice v) = if isSkolemTyVar v then emptyUniqSet else unitUniqSet v
+fvBase (VarEye v)   = if isSkolemTyVar v then emptyUniqSet else unitUniqSet v
