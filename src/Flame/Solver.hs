@@ -205,8 +205,6 @@ simplifyPrins flrec givens afcts =
             -> TcPluginM SimplifyResult
     simples flrec solved [] = do
       let solved_cts = map (lookupCT . fst) solved
-      --(c_ev, c_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes True flrec 
-      --(i_ev, i_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes False flrec 
       preds <- boundsToPredTypes flrec 
       (ev, wanted) <- evMagic flrec solved_cts preds
       return $ Simplified (ev, wanted)
@@ -237,16 +235,6 @@ simplifyPrins flrec givens afcts =
                                   in partition (\eq -> (S.notMember eq confDeps) && (S.notMember eq integDeps)) solved
     new_bounds flrec isConf result =
       case result of
-        -- TODO: need to "wake up" equations that depend on changed variables
-        -- af -> v: where v is in LHS of af
-        -- There is a dependency from af to all variables that occur on
-        -- the LHS of af, as the bounds on these variables may be modified
-        -- (upwards) as a result of solving eqn.
-        --  
-        -- v -> af: where v is in RHS of af
-        -- There is a dependency from all variables on the RHS of af to af,
-        -- because modifying (upwards) the bounds on these variables may cause eqn
-        -- to no longer be satisfied.
         ChangeBounds bnds -> let changed = fromList bnds
                              in ( pprTrace "keys" (ppr bnds <+> ppr changed) $ keys changed
                                 , union changed
@@ -270,7 +258,6 @@ toActsFor flrec ct = case classifyPredType $ ctEvPred $ ctEvidence ct of
                          return (ct, (sup, inf))
                      af -> Nothing
                          
---- XXX: still a little unsure of this.  Are we under-constraining the new TyVars?
 boundsToPredTypes :: FlameRec -> TcPluginM [PredType]
 boundsToPredTypes flrec = do
    ps <- mapM (\v -> do
@@ -302,10 +289,6 @@ evMagic flrec cts preds = -- pprTrace "Draw" (ppr preds) $
                 _ -> Nothing) cts
   in doMagic afscts
  where
-   --doEQMagic af = case af of
-   --  TyConApp tc [p,q] | tc == (actsfor flrec) ->
-   --     -- return $ (Just ((mkActsForEvidence af p q, ct), newWanted))
-   --  _ -> return Nothing
    doMagic :: [(PredType, Ct)] -> TcPluginM ([(EvTerm, Ct)], [Ct])
    doMagic afcts@((af,ct):_) = do
        holes <- replicateM (length preds) newCoercionHole
@@ -325,14 +308,6 @@ evMagic flrec cts preds = -- pprTrace "Draw" (ppr preds) $
                 _ -> return Nothing) afcts
        return (catMaybes evs, newWanted)
 
--- | Make up evidence for a fake equality constraint @t1 ~~ t2@ by
--- coercing bogus evidence of type @t1 ~ t2@ (or its heterogeneous
--- variant, in GHC 8.0).
--- stolen from https://github.com/adamgundry/uom-plugin
---mkActsForEvidence :: Type -> Type -> Type -> EvTerm
---mkActsForEvidence af p q = EvDFunApp (dataConWrapId heqDataCon) [typeKind p, typeKind q, p, q] [evByFiat "flame" p q]
---                       `EvCast` mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af
- 
 unifyItemToCt :: CtLoc
               -> PredType
               -> CoercionHole
