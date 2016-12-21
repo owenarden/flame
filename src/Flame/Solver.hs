@@ -22,6 +22,12 @@ To the header of your file.
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections   #-}
 
+{-# LANGUAGE StandaloneDeriving #-}
+--{-# LANGUAGE TypeSynonymInstances #-}
+--{-# LANGUAGE FlexibleInstances #-}
+--{-# LANGUAGE DeriveAnyClass #-}
+
+
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 module Flame.Solver
@@ -29,14 +35,16 @@ module Flame.Solver
 where
 
 -- external
-import Control.Arrow       (second)
-import Control.Monad       (replicateM)
-import Data.Maybe          (mapMaybe, maybeToList, catMaybes)
-import Data.Map.Strict     (foldlWithKey, empty, fromList, unionWith, findWithDefault, union)
-import UniqSet             (UniqSet, unionManyUniqSets, emptyUniqSet, unionUniqSets,
-                             unitUniqSet, uniqSetToList)
-
+import Control.Arrow              (second)
+import Control.Monad              (replicateM)
+import Data.List                  (partition)
+import qualified Data.Set as S    (union, empty, singleton, notMember)
+import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
+import Data.Map.Strict            (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList)
 -- GHC API
+import UniqSet             (uniqSetToList, unionUniqSets)
+import TcType              (isSkolemTyVar)
+
 import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
 import Plugins    (Plugin (..), defaultPlugin)
 import TcEvidence (EvTerm (..))
@@ -45,7 +53,7 @@ import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt, tcLookupTyCon, tcLookupData
 import TcRnTypes  (Ct, TcPlugin (..), TcPluginResult(..), ctEvidence, ctEvPred,
                    isWanted, mkNonCanonical)
 import Type       (EqRel (NomEq), Kind, PredTree (EqPred, IrredPred, ClassPred), PredType,
-                   classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass, typeKind, mkTyConApp)
+                   classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass, typeKind, mkTyConApp, TyVar)
 import Coercion   (CoercionHole, Role (..), mkForAllCos, mkHoleCo, mkInstCo,
                    mkNomReflCo, mkUnivCo)
 import TcPluginM  (newCoercionHole, newFlexiTyVar)
@@ -141,7 +149,7 @@ decideActsFor flrec givens  _deriveds wanteds = do
           Simplified evs -> do
             let solved = filter (isWanted . ctEvidence . (\(_,x) -> x)) (fst evs)
                 newWanteds = snd evs
-            return (TcPluginOk solved newWanteds)
+            return (TcPluginOk solved $ pprTrace "new wanteds" (ppr newWanteds) newWanteds)
           Impossible eq ->
             {- pprTrace "failed: " (ppr eq) $ -}
             -- return (TcPluginContradiction [fromActsFor eq])
@@ -165,58 +173,66 @@ simplifyPrins :: FlameRec
              -> [ActsForCt]
              -> [ActsForCt]
              -> TcPluginM SimplifyResult
-simplifyPrins flrec givens eqs =
+simplifyPrins flrec givens afcts =
       -- vars are only substituted in actsfor given a set of bounds.
       -- BUT: what about structural superiors?
     let (conf_givens_flat, integ_givens_flat) = flattenDelegations (map snd givens)
         conf_closure =  computeDelClosure conf_givens_flat
         integ_closure = computeDelClosure integ_givens_flat
-        flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure}
-    in pprTrace "simplify: " (ppr eqs) $ tcPluginTrace "simplifyPrins" (ppr eqs) >> simples flrec' [] [] eqs
+        flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure,
+                       confBounds = bottomVarMap, integBounds = bottomVarMap}
+    in pprTrace "simplify: " (ppr afcts <+> ppr bottomVarMap) $ tcPluginTrace "simplifyPrins" (ppr afcts) >> simples flrec' [] indexedAFs
   where
-    confEqToVarDeps = map (\(ct, eq@(N p _, N q _)) ->  (eq, uniqSetToList $ fvJNorm q)) eqs
-    confVarToEqDeps = foldl (\deps (eq, vars) -> 
-                              unionWith (unionUniqSets) (fromList [(v, unitUniqSet eq) | v <- vars]) deps)
-                            emptyUniqSet confEqToVarDeps
-    integEqToVarDeps = map (\(ct, eq@(N _ p, N _ q)) ->  (eq, uniqSetToList $ fvJNorm q)) eqs
-    integVarToEqDeps = foldl (\deps (eq, vars) -> 
-                              unionWith (unionUniqSets) (fromList [(v, unitUniqSet eq) | v <- vars]) deps)
-                            emptyUniqSet integEqToVarDeps
+    allVars = concat [uniqSetToList $ fvNorm p `unionUniqSets` fvNorm q | (ct, (p, q)) <- afcts]
+    bottomVarMap :: Map TyVar CoreJNorm
+    bottomVarMap = fromList $ map (\v -> (v, J [M [B]])) $ [v | v <- allVars, not (isSkolemTyVar v)]
+    indexedAFCTs = zip [0..length afcts] afcts
+    indexedAFs = map (\(i, (ct, af)) -> (i, af)) $ indexedAFCTs
+    lookupCT i = fst $ afcts !! i
+    confAFToVarDeps = fromList $ map (\(i, (ct, af@(N p _, N q _))) -> ((i, af), uniqSetToList $ fvJNorm q)) $ indexedAFCTs 
+    confVarToAFDeps = foldl (\deps (iaf, vars) -> 
+                              unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
+                            empty $ toList confAFToVarDeps
+
+    integAFToVarDeps = fromList $ map (\(i, (ct, af@(N _ p, N _ q))) -> ((i, af), uniqSetToList $ fvJNorm q)) $ indexedAFCTs 
+    integVarToAFDeps = foldl (\deps (iaf, vars) -> 
+                              unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
+                             empty $ toList integAFToVarDeps
 
     simples :: FlameRec
-            -> [ActsForCt]
-            -> [ActsForCt]
-            -> [ActsForCt]
+            -> [(Int, (CoreNorm, CoreNorm))]
+            -> [(Int, (CoreNorm, CoreNorm))]
             -> TcPluginM SimplifyResult
-    simples flrec solved _xs [] = do
-      let solved_cts = map fst solved
+    simples flrec solved [] = do
+      let solved_cts = map (lookupCT . fst) solved
       (c_ev, c_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes True flrec 
       (i_ev, i_wanted) <- evMagic flrec solved_cts $ boundsToPredTypes False flrec 
       return $ Simplified (c_ev ++ i_ev, c_wanted ++ i_wanted)
-    simples flrec solved xs (af@(ct,(u,v)):afs) = do
+    simples flrec solved (af@(i,(u,v)):iafs) = do
       -- solve on uninstantiated vars. return updated bounds
-      ur <- solvePrins flrec ct u v
+      ur <- solvePrins flrec u v
       pprTrace "solvePrins" (ppr ur) $ tcPluginTrace "solvePrins result" (ppr ur)
       case ur of
-        (Win, Win) -> simples flrec (af:solved) [] (xs ++ afs)
-        (Lose, _) -> pprTrace "conf: could not satisfy" ((ppr af) <+> (ppr (confBounds flrec))) $ return (Impossible af)
-        (_, Lose) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible af)
+        (Win, Win) -> simples flrec (af:solved) iafs
+        (Lose, _) -> pprTrace "conf: could not satisfy" ((ppr af) <+> (ppr (confBounds flrec))) $ return (Impossible (lookupCT (fst af), snd af))
+        (_, Lose) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible (lookupCT (fst af), snd af))
         (cnf, intg) -> -- update bounds
           -- update bounds and re-solve: this ensures all members of solved are only added via 'Win'
           let (confChanged, new_confBounds) = new_bounds flrec True cnf
-              (integChanged, new_integBounds) = new_bounds flrec False cnf
+              (integChanged, new_integBounds) = new_bounds flrec False intg
               (solved', to_awake) = wakeup solved confChanged integChanged
-          in simples flrec{confBounds = new_confBounds, integBounds = new_integBounds}
-                  solved' (to_awake ++ xs) (af:afs)
+          in pprTrace "changed / new bounds " (ppr confChanged <+> ppr integChanged <+> ppr new_confBounds <+> ppr new_integBounds) $
+            simples flrec{confBounds = new_confBounds, integBounds = new_integBounds}
+                     solved' (af:(to_awake ++ iafs))
     wakeup solved confchg integchg = let confDeps = foldl (\deps v ->
-                                                         (findWithDefault emptyUniqSet v confVarToEqDeps) `unionUniqSets` deps)
-                                                       emptyUniqSet
-                                                       confchg
+                                                             (findWithDefault S.empty v confVarToAFDeps) `S.union` deps)
+                                                          S.empty
+                                                          confchg
                                          integDeps = foldl (\deps v ->
-                                                         (findWithDefault emptyUniqSet v integVarToEqDeps) `unionUniqSets` deps)
-                                                       emptyUniqSet
-                                                       integchg
-                                  in partition (\eq -> not (elementOfUniqSet eq confDeps) && not (elementOfUniqSet eq integDeps)) solved
+                                                             (findWithDefault S.empty v integVarToAFDeps) `S.union` deps)
+                                                           S.empty
+                                                           integchg
+                                  in partition (\eq -> (S.notMember eq confDeps) && (S.notMember eq integDeps)) solved
     new_bounds flrec isConf result =
       case result of
         -- TODO: need to "wake up" equations that depend on changed variables
@@ -230,10 +246,10 @@ simplifyPrins flrec givens eqs =
         -- because modifying (upwards) the bounds on these variables may cause eqn
         -- to no longer be satisfied.
         ChangeBounds bnds -> let changed = fromList bnds
-                             in ( keys changed
+                             in ( pprTrace "keys" (ppr bnds <+> ppr changed) $ keys changed
                                 , union changed
                                         (if isConf then (confBounds flrec) else (integBounds flrec)))
-        Win -> if isConf then (confBounds flrec) else (integBounds flrec)
+        Win -> if isConf then ([], (confBounds flrec)) else ([], (integBounds flrec))
         Lose -> error "should not happen"
         
 -- Extract the actsfor constraints
@@ -273,7 +289,6 @@ evMagic flrec cts preds = -- pprTrace "Draw" (ppr preds) $
   in doMagic afscts
  where
    --doEQMagic af = case af of
-   --  -- This is based on Adam Gundry's uom-plugin. Ignoring newWanted for now.
    --  TyConApp tc [p,q] | tc == (actsfor flrec) ->
    --     -- return $ (Just ((mkActsForEvidence af p q, ct), newWanted))
    --  _ -> return Nothing

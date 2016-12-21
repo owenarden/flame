@@ -107,20 +107,21 @@ actsForM flrec isConf p q
 -- then transitivity can be exploited as simple reachability via given dels.
 actsForB :: FlameRec -> Bool -> CoreBase -> CoreBase ->
             Maybe ActsForProof
-actsForB flrec isConf _p q 
+actsForB flrec isConf _p _q 
   | p == top = Just AFTop
   | q == bot = Just AFBot
-  | p == J [M [q]]  = Just AFRefl
+  | p == q  = Just AFRefl
   | otherwise = pprTrace "actsForB" (ppr (p,q)) $
-    case find (== p) (superiors $ J [M [q]]) of
-      Just del -> Just $ AFDel (_p,q) -- TODO: encode bounds in proof
+    case find (== p) (superiors $ q) of
+      Just del -> Just $ AFDel (_p,_q) -- TODO: encode bounds in proof
       _ -> Nothing
   where
     p = substBase bounds isConf _p
+    q = substBase bounds isConf _q
     top :: CoreJNorm
     top = J [M [T]]
-    bot :: CoreBase
-    bot = B  
+    bot :: CoreJNorm
+    bot = J [M [B]]  
     bounds = if isConf then confBounds flrec else integBounds flrec
     --      XXX : what about structural superiors!?
     --      might need to iterate on fixpoint here again

@@ -12,6 +12,7 @@ import Data.Map.Strict (findWithDefault)
 -- GHC API
 import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace, showPpr)
 import Type       (cmpType, coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
+import TcType              (isSkolemTyVar)
 
 #if __GLASGOW_HASKELL__ >= 711
 import TyCoRep    (Type (..), TyLit (..), UnivCoProvenance(..), Coercion(..))
@@ -303,26 +304,29 @@ computeDelClosure givens =
 
     computeStructEdges (graph, vtxToEdges, prinToVtx) vtx = []
 
-substJNorm :: (Ord v, Ord c) => Bounds v c -> Bool -> JNorm v c -> JNorm v c
+substJNorm :: CoreBounds -> Bool -> CoreJNorm -> CoreJNorm
 substJNorm bounds isConf = foldr1 mergeJNormJoin . map (substMNorm bounds isConf) . unJ
 
-substMNorm :: (Ord v, Ord c) => Bounds v c -> Bool -> MNorm v c -> JNorm v c
+substMNorm :: CoreBounds -> Bool -> CoreMNorm -> CoreJNorm
 substMNorm bounds isConf = foldr1 mergeJNormMeet . map (substBase bounds isConf) . unM
 
-substBase :: (Ord v, Ord c) => Bounds v c -> Bool -> Base v c -> JNorm v c
+substBase :: CoreBounds -> Bool -> CoreBase -> CoreJNorm
 substBase _ _ B = jbot
 substBase _ _ T = J [M [T]]
 substBase _ _ p@(P s) = J [M [p]]
-substBase bounds isConf (V tv) = findWithDefault jbot tv bounds
-substBase bounds isConf (VarVoice tv) = 
+substBase bounds isConf (V tv) | not (isSkolemTyVar tv) = findWithDefault jbot tv bounds
+substBase bounds isConf (V tv) = J [M [V tv]]
+substBase bounds isConf (VarVoice tv) | not (isSkolemTyVar tv) = 
   if isConf then
     jbot -- XXX: should have already been removed
   else
     integ (voiceOf (N (findWithDefault jbot tv bounds) jbot))
-substBase bounds isConf (VarEye tv) = 
+substBase bounds isConf (VarVoice tv) = J [M [VarVoice tv]]
+substBase bounds isConf (VarEye tv) | not (isSkolemTyVar tv) = 
   if isConf then
     conf (eyeOf (N jbot (findWithDefault jbot tv bounds)))
   else
     jbot -- XXX: should have already been removed
+substBase bounds isConf (VarEye tv) = J [M [VarEye tv]]
 
 jbot = J [M [B]]

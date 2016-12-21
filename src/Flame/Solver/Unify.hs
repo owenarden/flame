@@ -44,7 +44,6 @@ import Type          (EqRel (NomEq), PredTree (EqPred), TyVar, classifyPredType,
                       coreView, eqType, mkNumLitTy, mkTyConApp, mkTyVarTy,
                       nonDetCmpType)
 import TyCoRep       (Type (..), TyLit (..))
-
 import Flame.Solver.Data
 import Flame.Solver.Norm
 import Flame.Solver.ActsFor
@@ -71,13 +70,13 @@ instance Outputable SolverResult where
 --
 -- If @u@ and @v@ do not have the same free variables, we result in a 'Draw',
 -- ware @u@ and @v@ are only equal when the returned 'CoreSubst' holds.
-solvePrins :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> TcPluginM (SolverResult, SolverResult)
-solvePrins flrec ct p q = do
-  tcPluginTrace "solvePrins" (ppr ct $$ ppr p $$ ppr q)
-  return (solvePrins' flrec ct p q)
+solvePrins :: FlameRec -> CoreNorm -> CoreNorm -> TcPluginM (SolverResult, SolverResult)
+solvePrins flrec p q = do
+  tcPluginTrace "solvePrins" (ppr p $$ ppr q)
+  return (solvePrins' flrec p q)
 
-solvePrins' :: FlameRec -> Ct -> CoreNorm -> CoreNorm -> (SolverResult, SolverResult)
-solvePrins' flrec ct p@(N cp ip) q@(N cq iq) =
+solvePrins' :: FlameRec -> CoreNorm -> CoreNorm -> (SolverResult, SolverResult)
+solvePrins' flrec p@(N cp ip) q@(N cq iq) =
     (solve (confBounds flrec) True cp cq, solve (integBounds flrec) False ip iq)
   where
     solve bounds isConf p q =
@@ -94,10 +93,11 @@ solvePrins' flrec ct p@(N cp ip) q@(N cq iq) =
                          Lose
             vars  -> pprTrace "Lose: punting on multivar equations for now." (ppr p) Lose
     joinWith q bnd = let new_bnd = mergeJNormJoin bnd q
-                     in if new_bnd == bnd then
-                          Nothing
-                        else
-                          Just new_bnd
+                     in pprTrace "old/new" ((ppr bnd) <+> (ppr new_bnd)) $
+                         if new_bnd == bnd then
+                           Nothing
+                         else
+                           Just new_bnd
 {- | Collect the free variables of a normalized principal -}
 fvNorm :: CoreNorm -> UniqSet TyVar
 fvNorm (N conf integ) = fvJNorm conf `unionUniqSets` fvJNorm integ
