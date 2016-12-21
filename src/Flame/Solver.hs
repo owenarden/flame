@@ -22,12 +22,6 @@ To the header of your file.
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections   #-}
 
-{-# LANGUAGE StandaloneDeriving #-}
---{-# LANGUAGE TypeSynonymInstances #-}
---{-# LANGUAGE FlexibleInstances #-}
---{-# LANGUAGE DeriveAnyClass #-}
-
-
 {-# OPTIONS_HADDOCK show-extensions #-}
 
 module Flame.Solver
