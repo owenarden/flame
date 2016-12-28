@@ -34,7 +34,7 @@ import Control.Monad              (replicateM, msum)
 import Data.List                  (partition)
 import qualified Data.Set as S    (union, empty, singleton, notMember, toList)
 import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
-import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList, mapWithKey, keysSet, elems, lookup)
+import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList, mapWithKey, keysSet, elems, lookup, singleton)
 -- GHC API
 import UniqSet             (uniqSetToList, unionUniqSets)
 import TcType              (isSkolemTyVar)
@@ -64,6 +64,7 @@ import TysWiredIn  ( heqDataCon, heqTyCon )
 import Flame.Solver.Data
 import Flame.Solver.Unify
 import Flame.Solver.Norm
+import Flame.Solver.ActsFor
 
 
 plugin :: Plugin
@@ -149,19 +150,6 @@ decideActsFor flrec givens  _deriveds wanteds = do
             -- return (TcPluginContradiction [fromActsFor eq])
             return (TcPluginOk [] [])
 
-type ActsForCt = (Ct, (CoreNorm, CoreNorm))
-
-fromActsFor :: ActsForCt -> Ct
-fromActsFor (ct, _)    = ct
-
-data SimplifyResult
-  = Simplified ([(EvTerm,Ct)],[Ct])
-  | Impossible ActsForCt
-
-instance Outputable SimplifyResult where
-  ppr (Simplified evs) = text "Simplified" $$ ppr evs
-  ppr (Impossible eq)  = text "Impossible" <+> ppr eq
-
 -- TODO: need to change from evs to "sovled" cts, then generate evidence all at once.
 simplifyPrins :: FlameRec
              -> [ActsForCt]
@@ -175,7 +163,7 @@ simplifyPrins flrec givens afcts =
         integ_closure = computeDelClosure integ_givens_flat
         flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure,
                        confBounds = bottomVarMap, integBounds = bottomVarMap}
-    in pprTrace "simplify: " (ppr afcts <+> ppr bottomVarMap) $ tcPluginTrace "simplifyPrins" (ppr afcts) >> simples flrec' [] indexedAFs
+    in pprTrace "simplify: " (ppr afcts <+> ppr bottomVarMap) $ tcPluginTrace "simplifyPrins" (ppr afcts) >> solve flrec' indexedAFs
   where
     allVars = concat [uniqSetToList $ fvNorm p `unionUniqSets` fvNorm q | (ct, (p, q)) <- afcts]
     bottomVarMap :: Map TyVar CoreJNorm
@@ -193,49 +181,94 @@ simplifyPrins flrec givens afcts =
                               unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
                              empty $ toList integAFToVarDeps
 
-    simples :: FlameRec
-            -> [(Int, (CoreNorm, CoreNorm))]
+    solve :: FlameRec
             -> [(Int, (CoreNorm, CoreNorm))]
             -> TcPluginM SimplifyResult
-    simples flrec solved [] = do
-      let solved_cts = map (lookupCT . fst) solved
-      preds <- boundsToPredTypes flrec 
-      (ev, wanted) <- evMagic flrec solved_cts preds
-      return $ Simplified (ev, wanted)
-    simples flrec solved (af@(i,(u,v)):iafs) = do
+    solve flrec iafs = do
       -- solve on uninstantiated vars. return updated bounds
-      ur <- solvePrins flrec u v
-      pprTrace "solvePrins" (ppr ur) $ tcPluginTrace "solvePrins result" (ppr ur)
-      case ur of
-        (Win, Win) -> simples flrec (af:solved) iafs
-        (Lose, _) -> pprTrace "conf: could not satisfy" ((ppr af) <+> (ppr (confBounds flrec))) $ return (Impossible (lookupCT (fst af), snd af))
-        (_, Lose) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible (lookupCT (fst af), snd af))
-        (cnf, intg) -> -- update bounds
-          -- update bounds and re-solve: this ensures all members of solved are only added via 'Win'
-          let (confChanged, new_confBounds) = new_bounds flrec True cnf
-              (integChanged, new_integBounds) = new_bounds flrec False intg
-              (solved', to_awake) = wakeup solved confChanged integChanged
-          in pprTrace "changed / new bounds " (ppr confChanged <+> ppr integChanged <+> ppr new_confBounds <+> ppr new_integBounds) $
-            simples flrec{confBounds = new_confBounds, integBounds = new_integBounds}
-                     solved' (af:(to_awake ++ iafs))
-    wakeup solved confchg integchg = let confDeps = foldl (\deps v ->
-                                                             (findWithDefault S.empty v confVarToAFDeps) `S.union` deps)
-                                                          S.empty
-                                                          confchg
-                                         integDeps = foldl (\deps v ->
-                                                             (findWithDefault S.empty v integVarToAFDeps) `S.union` deps)
-                                                           S.empty
-                                                           integchg
-                                  in partition (\eq -> (S.notMember eq confDeps) && (S.notMember eq integDeps)) solved
-    new_bounds flrec isConf result =
-      case result of
-        ChangeBounds bnds -> let changed = fromList bnds
-                             in ( pprTrace "keys" (ppr bnds <+> ppr changed) $ keys changed
-                                , union changed
-                                        (if isConf then (confBounds flrec) else (integBounds flrec)))
-        Win -> if isConf then ([], (confBounds flrec)) else ([], (integBounds flrec))
-        Lose -> error "should not happen"
-        
+      let sr = ( search flrec True [] iafs []
+               , search flrec False [] iafs [])
+      pprTrace "search" (ppr sr) $ tcPluginTrace "search result" (ppr sr)
+      case sr of
+        (Lose af, _) -> pprTrace "conf: could not satisfy" ((ppr af) <+> (ppr (confBounds flrec))) $ return (Impossible af)
+        (_, Lose af) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible af)
+        (cnf, intg) -> do
+          let cnf' = resultBounds cnf
+              intg' = resultBounds intg
+              new_flrec = updateBounds (updateBounds flrec True cnf') False intg'
+              solved_cts = map (lookupCT . fst) iafs
+          preds <- boundsToPredTypes new_flrec 
+          (ev, wanted) <- evMagic new_flrec solved_cts preds
+          return $ Simplified (ev, wanted)
+
+    wakeup isConf solved chg = let varToDeps = if isConf then confVarToAFDeps else integVarToAFDeps
+                                   eqns = foldl (\deps v ->
+                                                   (findWithDefault S.empty v varToDeps) `S.union` deps)
+                                                S.empty
+                                                chg
+                               in partition (\eq -> (S.notMember eq eqns)) solved
+
+    search :: FlameRec
+           -> Bool
+           -> [(Int, (CoreNorm, CoreNorm))]
+           -> [(Int, (CoreNorm, CoreNorm))]
+           -> [(TyVar, CoreJNorm)]
+           -> SolverResult
+    search flrec isConf solved [] changes = case changes of 
+                                              [] -> Win
+                                              _ -> ChangeBounds changes
+    search flrec isConf solved (af@(i,(u@(N cp ip), v@(N cq iq))):iafs) changes =
+      -- solve on uninstantiated vars. return updated bounds
+      let sr = refineBoundsIfNeeded flrec isConf solved (af:iafs)
+      in pprTrace "search" (ppr sr) $ case sr of
+         Win  -> search flrec isConf (af:solved) iafs changes
+         Lose af' -> pprTrace "could not satisfy" ((ppr af') <+> (ppr (confBounds flrec))) $ Lose af'
+         --(_, Lose) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible (lookupCT (fst af), snd af))
+         ChangeBounds bnds -> 
+           -- update bounds and re-solve: this ensures all members of solved are only added via 'Win'
+           let new_flrec = updateBounds flrec isConf bnds
+               vchgd = map fst bnds
+               (solved', to_awake) = wakeup isConf solved vchgd
+           in search new_flrec isConf solved' (af:(to_awake ++ iafs)) (bnds ++ changes)
+
+    refineBoundsIfNeeded flrec isConf solved (af@(i,(u@(N cp ip), v@(N cq iq))):iafs) =
+      let p      = if isConf then cp else ip
+          q      = if isConf then cq else iq
+          bounds = getBounds flrec isConf 
+      in case actsForJ flrec isConf p q of
+        Just pf -> pprTrace "actsforJ win: " (ppr pf) Win
+        Nothing ->
+          case uniqSetToList $ fvJNorm p of 
+            [] -> pprTrace "Lose: no free variables" (ppr p) $
+              Lose (lookupCT (fst af), snd af)
+            [var] -> case joinWith q (findWithDefault jbot var bounds) of
+                       Just bnd ->
+                         pprTrace "ChangeBounds: " ((ppr p) <+> text ">=" <+> (ppr bnd)) $ ChangeBounds [(var, bnd)]
+                       Nothing -> pprTrace "Lose: var bound unchanged" (ppr p) $
+                         Lose (lookupCT (fst af), snd af)
+            vars -> let tryvar vs = case vs of
+                          [] -> Lose (lookupCT (fst af), snd af)
+                          (v:vs') -> case joinWith q (findWithDefault jbot v bounds) of
+                                      Just bnd ->
+                                        -- so far so good. recurse with this bound set.
+                                        let new_flrec = updateBounds flrec isConf [(v, bnd)]
+                                        in case search new_flrec isConf solved (af:iafs) [] of
+                                             -- couldn't solve, try next vars
+                                             Lose af -> tryvar vs' 
+                                             -- solved with this change, return it
+                                             Win -> ChangeBounds [(v, bnd)] 
+                                             -- solved with this and other changes, return them
+                                             ChangeBounds changes -> ChangeBounds ((v, bnd):changes)
+                                      Nothing -> tryvar vs'
+                    in tryvar vars
+    joinWith q bnd = let new_bnd = mergeJNormJoin bnd q
+                     in pprTrace "old/new" ((ppr bnd) <+> (ppr new_bnd)) $
+                         if new_bnd == bnd then
+                           Nothing
+                         else
+                           Just new_bnd
+
+
 -- Extract the actsfor constraints
 toActsFor :: FlameRec -> Ct -> [ActsForCt]
 toActsFor flrec ct = case classifyPredType $ ctEvPred $ ctEvidence ct of
@@ -274,7 +307,7 @@ boundsToPredTypes flrec = do
     allVars = (keysSet $ confBounds flrec) `S.union` (keysSet $ integBounds flrec) 
 
 evMagic :: FlameRec -> [Ct] -> [PredType] -> TcPluginM ([(EvTerm, Ct)], [Ct])
-evMagic flrec cts preds = -- pprTrace "Draw" (ppr preds) $ 
+evMagic flrec cts preds = pprTrace "evMagic" (ppr cts) $ 
   let afscts = mapMaybe (\ct -> case classifyPredType $ ctEvPred $ ctEvidence ct of
                 EqPred NomEq af fsk -> Just (af, ct)
                 IrredPred af -> Just (af, ct)
@@ -284,6 +317,7 @@ evMagic flrec cts preds = -- pprTrace "Draw" (ppr preds) $
   in doMagic afscts
  where
    doMagic :: [(PredType, Ct)] -> TcPluginM ([(EvTerm, Ct)], [Ct])
+   doMagic [] = return ([], [])
    doMagic afcts@((af,ct):_) = do
        holes <- replicateM (length preds) newCoercionHole
        --XXX ugh. what ctLoc to use here?

@@ -3,13 +3,14 @@
 module Flame.Solver.Data where
 -- External
 import Data.IORef (IORef)
-import Data.Map.Strict (Map)
+import Data.Map.Strict (Map, union, keys, fromList)
 
 -- GHC API
 import TyCon      (TyCon)
-import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace)
+import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace, ($$))
 import Type       (Type,TyVar,cmpType)
 import TcRnTypes  (Ct)
+import TcEvidence (EvTerm (..))
 
 #if __GLASGOW_HASKELL__ >= 711
 import Type       (eqType)
@@ -110,3 +111,50 @@ data FlameRec = FlameRec {
    confBounds   :: CoreBounds,
    integBounds  :: CoreBounds
  }
+
+getBounds flrec isConf =
+  if isConf then
+    confBounds flrec
+  else
+    integBounds flrec
+
+updateBounds flrec isConf newBnds =
+ if isConf then
+   flrec{confBounds = union (fromList newBnds) (getBounds flrec isConf)}
+ else
+   flrec{integBounds = union (fromList newBnds) (getBounds flrec isConf)}
+
+data SimplifyResult
+  = Simplified ([(EvTerm,Ct)],[Ct])
+  | Impossible ActsForCt
+
+instance Outputable SimplifyResult where
+  ppr (Simplified evs) = text "Simplified" $$ ppr evs
+  ppr (Impossible eq)  = text "Impossible" <+> ppr eq
+
+data SolverResult
+  = Win                      -- ^ Two terms are equal
+  | Lose ActsForCt
+  | ChangeBounds [(TyVar, CoreJNorm)] -- ^ Two terms are only equal if the given substitution holds
+
+resultBounds result =
+  case result of
+    ChangeBounds bnds -> bnds
+    Win -> []
+    Lose af -> error "should not happen"
+
+changedVars result =
+  case result of
+    ChangeBounds bnds -> keys $ fromList bnds
+    Win -> []
+    Lose af -> error "should not happen"
+
+instance Outputable SolverResult where
+  ppr Win          = text "Win"
+  ppr (ChangeBounds bnds) = text "ChangeBounds" <+> ppr bnds
+  ppr (Lose af)       = text "Lose"
+
+type ActsForCt = (Ct, (CoreNorm, CoreNorm))
+
+fromActsFor :: ActsForCt -> Ct
+fromActsFor (ct, _)    = ct
