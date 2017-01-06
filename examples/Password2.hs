@@ -1,5 +1,7 @@
 {-# LANGUAGE TypeOperators, PostfixOperators #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 import Prelude hiding (print, putStr, putStrLn, getLine)
@@ -53,26 +55,23 @@ inputPass client stdin stdout = do
       assume ((client*←) ≽ (alice*←)) $
         reprotect $ hGetLine stdin
 
-{-
 main :: IO ()
 main = do
       name <- getEffectiveUserName
-      withPrin (Name name) $ \client_ -> 
+      withPrin (Name name) $ \(client_ :: DPrin client) -> 
         let client = (st client_) in
         let stdout = mkStdout (client*→) in
         let stdin  = mkStdin (client*←) in
-        let pc = (client*→) *∧ (alice*←) in
         do _ <- runIFC $
                 use (inputPass client stdin stdout) $ \pass ->
-                use (chkPass client pass) $ \mdel -> 
+                use (chkPass client alice aliceSecret pass) $ \mdel -> 
                   case mdel of
                     Just (vdel,del) ->
                       {- Use the granted authority print Alice's secret -}
                       assume vdel $ assume del $
-                        lbind aliceSecret $ \secret ->
-                        hPutStrLnx pc stdout secret
+                        ebind aliceSecret $ \secret ->
+                        -- why is this explicit application necessary?
+                        hPutStrLn @_ @(C client) stdout secret
                     Nothing ->
-                      hPutStrLnx pc stdout "Incorrect password."
+                      hPutStrLn @_ @(C client) stdout "Incorrect password."
            return ()
--}
-main = undefined

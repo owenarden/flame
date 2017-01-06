@@ -58,6 +58,7 @@ import GHC.TcPluginM.Extra (lookupModule, lookupName, newGiven, tracePlugin, evB
 import OccName    (mkTcOcc, mkDataOcc, mkClsOcc)
 import Module     (mkModuleName)
 import DataCon (promoteDataCon, dataConWrapId)
+import TyCon (tyConResKind)
 import TysWiredIn  ( heqDataCon, heqTyCon )
 
 -- internal
@@ -133,29 +134,25 @@ decideActsFor flrec givens  _deriveds wanteds = do
     -- XXX: natnormalise zonkCt's these givens, but that appears to remove the ones I care about.
     -- TODO: should also extract NomEq predicates on principal vars to peg their bounds: just subst them everywhere, I guess?
     let unit_givens = concat $ map (toActsFor flrec) givens
-    --pprTrace "wanted: " (ppr unit_wanteds) $
     case unit_wanteds of
       [] -> return (TcPluginOk [] [])
       _  -> do
-        sr <- simplifyPrins flrec unit_givens unit_wanteds
-        --pprTrace "simplfied: " (ppr sr) $
+        sr <- solvePrins flrec unit_givens unit_wanteds
         tcPluginTrace "flame-normalized" (ppr sr)
         case sr of
           Simplified evs -> do
             let solved = filter (isWanted . ctEvidence . (\(_,x) -> x)) (fst evs)
                 newWanteds = snd evs
-            return (TcPluginOk solved $ pprTrace "new wanteds" (ppr newWanteds) newWanteds)
-          Impossible eq ->
-            {- pprTrace "failed: " (ppr eq) $ -}
+            return (TcPluginOk solved newWanteds)
+          Impossible eq -> do
             -- return (TcPluginContradiction [fromActsFor eq])
             return (TcPluginOk [] [])
 
--- TODO: need to change from evs to "sovled" cts, then generate evidence all at once.
-simplifyPrins :: FlameRec
+solvePrins :: FlameRec
              -> [ActsForCt]
              -> [ActsForCt]
              -> TcPluginM SimplifyResult
-simplifyPrins flrec givens afcts =
+solvePrins flrec givens afcts =
       -- vars are only substituted in actsfor given a set of bounds.
       -- BUT: what about structural superiors?
     let (conf_givens_flat, integ_givens_flat) = flattenDelegations (map snd givens)
@@ -163,7 +160,7 @@ simplifyPrins flrec givens afcts =
         integ_closure = computeDelClosure integ_givens_flat
         flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure,
                        confBounds = bottomVarMap, integBounds = bottomVarMap}
-    in pprTrace "simplify: " (ppr afcts <+> ppr bottomVarMap) $ tcPluginTrace "simplifyPrins" (ppr afcts) >> solve flrec' indexedAFs
+    in tcPluginTrace "solvePrins" (ppr afcts) >> solve flrec' indexedAFs
   where
     allVars = concat [uniqSetToList $ fvNorm p `unionUniqSets` fvNorm q | (ct, (p, q)) <- afcts]
     bottomVarMap :: Map TyVar CoreJNorm
@@ -188,10 +185,10 @@ simplifyPrins flrec givens afcts =
       -- solve on uninstantiated vars. return updated bounds
       let sr = ( search flrec True [] iafs []
                , search flrec False [] iafs [])
-      pprTrace "search" (ppr sr) $ tcPluginTrace "search result" (ppr sr)
+      tcPluginTrace "search result" (ppr sr)
       case sr of
-        (Lose af, _) -> pprTrace "conf: could not satisfy" ((ppr af) <+> (ppr (confBounds flrec))) $ return (Impossible af)
-        (_, Lose af) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible af)
+        (Lose af, _) -> return (Impossible af)
+        (_, Lose af) -> return (Impossible af)
         (cnf, intg) -> do
           let cnf' = resultBounds cnf
               intg' = resultBounds intg
@@ -200,6 +197,7 @@ simplifyPrins flrec givens afcts =
           preds <- boundsToPredTypes new_flrec 
           (ev, wanted) <- evMagic new_flrec solved_cts preds
           return $ Simplified (ev, wanted)
+
 
     wakeup isConf solved chg = let varToDeps = if isConf then confVarToAFDeps else integVarToAFDeps
                                    eqns = foldl (\deps v ->
@@ -220,10 +218,9 @@ simplifyPrins flrec givens afcts =
     search flrec isConf solved (af@(i,(u@(N cp ip), v@(N cq iq))):iafs) changes =
       -- solve on uninstantiated vars. return updated bounds
       let sr = refineBoundsIfNeeded flrec isConf solved (af:iafs)
-      in pprTrace "search" (ppr sr) $ case sr of
+      in case sr of
          Win  -> search flrec isConf (af:solved) iafs changes
-         Lose af' -> pprTrace "could not satisfy" ((ppr af') <+> (ppr (confBounds flrec))) $ Lose af'
-         --(_, Lose) -> pprTrace "integ: could not satisfy" ((ppr af) <+> (ppr (integBounds flrec))) $ return (Impossible (lookupCT (fst af), snd af))
+         Lose af' -> Lose af'
          ChangeBounds bnds -> 
            -- update bounds and re-solve: this ensures all members of solved are only added via 'Win'
            let new_flrec = updateBounds flrec isConf bnds
@@ -236,16 +233,13 @@ simplifyPrins flrec givens afcts =
           q      = if isConf then cq else iq
           bounds = getBounds flrec isConf 
       in case actsForJ flrec isConf p q of
-        Just pf -> pprTrace "actsforJ win: " (ppr pf) Win
-        Nothing ->
+        Just pf -> Win
+        Nothing -> 
           case uniqSetToList $ fvJNorm p of 
-            [] -> pprTrace "Lose: no free variables" (ppr p) $
-              Lose (lookupCT (fst af), snd af)
+            [] -> Lose (lookupCT (fst af), snd af)
             [var] -> case joinWith q (findWithDefault jbot var bounds) of
-                       Just bnd ->
-                         pprTrace "ChangeBounds: " ((ppr p) <+> text ">=" <+> (ppr bnd)) $ ChangeBounds [(var, bnd)]
-                       Nothing -> pprTrace "Lose: var bound unchanged" (ppr p) $
-                         Lose (lookupCT (fst af), snd af)
+                       Just bnd -> ChangeBounds [(var, bnd)]
+                       Nothing -> Lose (lookupCT (fst af), snd af)
             vars -> let tryvar vs = case vs of
                           [] -> Lose (lookupCT (fst af), snd af)
                           (v:vs') -> case joinWith q (findWithDefault jbot v bounds) of
@@ -262,8 +256,7 @@ simplifyPrins flrec givens afcts =
                                       Nothing -> tryvar vs'
                     in tryvar vars
     joinWith q bnd = let new_bnd = mergeJNormJoin bnd q
-                     in pprTrace "old/new" ((ppr bnd) <+> (ppr new_bnd)) $
-                         if new_bnd == bnd then
+                     in if new_bnd == bnd then
                            Nothing
                          else
                            Just new_bnd
@@ -271,19 +264,34 @@ simplifyPrins flrec givens afcts =
 
 -- Extract the actsfor constraints
 toActsFor :: FlameRec -> Ct -> [ActsForCt]
-toActsFor flrec ct = case classifyPredType $ ctEvPred $ ctEvidence ct of
-    EqPred NomEq af fsk -> maybeToList $ getActsFor af
-    IrredPred af -> maybeToList $ getActsFor af
-    ClassPred cls afs | isCTupleClass cls -> mapMaybe getActsFor afs 
+toActsFor flrec ct =
+  case classifyPredType $ ctEvPred $ ctEvidence ct of
+
+    -- XXX: Should (fsk ~ True)?
+    EqPred NomEq af@(TyConApp tc [p,q]) fsk
+      | tc == (actsfor flrec) -> maybeToList $ toAFCt (p,q)
+
+    EqPred NomEq p q
+      | typeKind p == tyConResKind (kprin flrec)
+        && typeKind q == tyConResKind (kprin flrec)
+        -> catMaybes [toAFCt (p, q), toAFCt (q, p)]
+
+    IrredPred af -> maybeToList $ do pair <- maybeActsFor af
+                                     toAFCt pair
+
+    ClassPred cls afs | isCTupleClass cls ->
+      let pairs = mapMaybe maybeActsFor afs
+      in mapMaybe toAFCt pairs
+
     _ -> []
   where
-    getActsFor af = case af of
-                     TyConApp tc [p,q]
-                       | tc == (actsfor flrec) -> do
-                         sup <- normPrin flrec p
-                         inf <- normPrin flrec q
-                         return (ct, (sup, inf))
-                     af -> Nothing
+    maybeActsFor af = case af of
+                        TyConApp tc [p,q]
+                          | tc == (actsfor flrec) -> Just (p, q)
+                        af -> Nothing
+    toAFCt (p, q) = do sup <- normPrin flrec p
+                       inf <- normPrin flrec q
+                       return (ct, (sup, inf))
                          
 boundsToPredTypes :: FlameRec -> TcPluginM [PredType]
 boundsToPredTypes flrec = do
@@ -307,7 +315,7 @@ boundsToPredTypes flrec = do
     allVars = (keysSet $ confBounds flrec) `S.union` (keysSet $ integBounds flrec) 
 
 evMagic :: FlameRec -> [Ct] -> [PredType] -> TcPluginM ([(EvTerm, Ct)], [Ct])
-evMagic flrec cts preds = pprTrace "evMagic" (ppr cts) $ 
+evMagic flrec cts preds = 
   let afscts = mapMaybe (\ct -> case classifyPredType $ ctEvPred $ ctEvidence ct of
                 EqPred NomEq af fsk -> Just (af, ct)
                 IrredPred af -> Just (af, ct)
@@ -334,6 +342,7 @@ evMagic flrec cts preds = pprTrace "evMagic" (ppr cts) $
                                 [typeKind p, typeKind q, p, q]
                                 [evByFiat "flame" p q] `EvCast` finalEv, ct')
                 _ -> return Nothing) afcts
+       
        return (catMaybes evs, newWanted)
 
 unifyItemToCt :: CtLoc
@@ -344,3 +353,16 @@ unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest 
 
 mkHEqPred :: Type -> Type -> Type
 mkHEqPred t1 t2 = TyConApp heqTyCon [typeKind t1, typeKind t2, t1, t2]
+
+-- | Used when we generate new constraints.
+-- The boolean indicates if we are generateing a given or
+-- a derived constraint.
+mkNewEqFact :: CtLoc -> (Type,Type) -> TcPluginM CtEvidence
+mkNewEqFact newLoc (t1,t2) = newGiven newLoc newPred (evByFiat "flame" t1 t2)
+  where
+  newPred = mkPrimEqPred t1 t2
+
+mkNewAFFact :: FlameRec -> CtLoc -> (Type,Type) -> TcPluginM CtEvidence
+mkNewAFFact flrec newLoc (t1,t2) = newGiven newLoc newPred (evByFiat "flame" t1 t2)
+  where
+  newPred = mkTyConApp (actsfor flrec) [t1, t2]

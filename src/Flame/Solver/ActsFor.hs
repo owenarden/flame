@@ -57,8 +57,7 @@ actsForJ flrec isConf p q
   | p == top  = Just AFTop
   | q == bot  = Just AFBot
   | p == q    = Just AFRefl
-  | otherwise = pprTrace "actsForJ" (ppr (p,q)) $
-                AFConj <$> conjProofs 
+  | otherwise = AFConj <$> conjProofs 
   where
     top :: CoreJNorm
     top = J [M [T]]
@@ -73,7 +72,6 @@ actsForJ flrec isConf p q
                                          pms
                                   of
                                     (pf:pfs) ->
-                                      --pprTrace "found proof" (ppr pf) $
                                       Just pf
                                     [] -> Nothing
                                 )
@@ -111,7 +109,7 @@ actsForB flrec isConf _p _q
   | p == top = Just AFTop
   | q == bot = Just AFBot
   | p == q  = Just AFRefl
-  | otherwise = pprTrace "actsForB" (ppr (p,q)) $
+  | otherwise = 
     case find (== p) (superiors $ q) of
       Just del -> Just $ AFDel (_p,_q) -- TODO: encode bounds in proof
       _ -> Nothing
