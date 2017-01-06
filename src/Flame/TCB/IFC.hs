@@ -29,6 +29,7 @@ class Labeled (n :: KPrin -> * -> *) where
   bind      :: (l ⊑ l') => n l a -> (a -> n l' b) -> n l' b
   unlabelPT :: n PT a -> a
   unlabelU  :: n l () -> ()
+  unsafeUnlabel :: n l a -> a
   
   relabel :: (l ⊑ l') => n l a -> n l' a
   relabel a = bind a label
@@ -39,7 +40,7 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
 
   apply  :: (pc ⊑ pc', pc ⊑ pc'') => m e n pc l a -> (n l a -> m e n pc' l' b) -> m e n pc'' l' b
 
-  ebind  :: (l ⊑ l', l ⊑ pc') => n l a -> (a -> m e n pc' l' b) -> m e n pc l' b
+  ebind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> m e n pc l' b) -> m e n pc' l' b
 
   unsafeProtect :: e (n l a) -> m e n pc l a
 
@@ -65,6 +66,40 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
   fjoin  :: forall l l' pc pc' a. (l ⊑ l',  pc ⊑ pc', l ⊑ pc') => m e n pc l (m e n pc' l' a) -> m e n pc' l' a
   fjoin x = use x id
 
+class FLA m e n => BFLA c m e n where
+  lift_b :: n l a -> c m e n β pc l a
+
+  apply_b  :: (pc ⊑ pc', pc ⊑ pc'', β' ⊑ β, β'' ⊑ β) => c m e n β pc l a -> (n l a -> c m e n β' pc' l' b) -> c m e n β' pc'' l' b
+
+  ebind_b  :: (l ⊑ l', l ⊑ pc, l ⊑ β) => n l a -> (a -> c m e n β pc l' b) -> c m e n β' pc' l' b
+
+  clearBounds :: c m e n β pc l a -> m e n pc l a
+
+  use_b :: (l ⊑ l', pc ⊑ pc', pc ⊑ pc'', l ⊑ pc', l ⊑ β', β' ⊑ β, β'' ⊑ β) => c m e n β pc l a -> (a -> c m e n β' pc' l' b) -> c m e n β'' pc'' l' b
+  use_b x f = apply_b x $ \x' -> ebind_b x' f
+
+  protect_b :: a -> c m e n β pc l a
+  protect_b = lift_b . label
+
+  iassume :: (pc ⊑ ((I q) ∧ Δ p), β ⊑ Δ p) =>
+              (I p :≽ I q) -> ((I p ≽ I q) => c m e n β pc l a) -> c m e n β pc l a
+  iassume = unsafeAssume
+
+  vassume :: (pc ⊑ ((∇) q ∧ (Δ ((∇) p))), β ⊑ (Δ ((∇) p))) =>
+              ((∇) p :≽ (∇) q) -> (((∇) p ≽ (∇) q) => c m e n β pc l a) -> c m e n β pc l a
+  vassume = unsafeAssume
+
+  cassume :: (pc ≽ (∇) q, (∇) p ≽ (∇) q, β ≽ ((∇) q)) => 
+              (C p :≽ C q) -> ((C p ≽ C q) => c m e n β pc l a) -> c m e n β pc l a
+  cassume = unsafeAssume
+
+  eassume :: (pc ≽ (∇) (Δ q), (∇) (Δ p) ≽ (∇) (Δ q), β ≽ ((∇) (Δ p))) => 
+              (Δ p :≽ Δ q) -> ((Δ p ≽ Δ q) => c m e n β pc l a) -> c m e n β pc l a
+  eassume = unsafeAssume
+
+  reprotect_b :: forall β β' l l' pc pc' a. (l ⊑ l', pc ⊑ pc', β' ⊑ β) => c m e n β pc l a -> c m e n β' pc' l' a 
+  reprotect_b x = apply_b x $ \x' -> ebind_b x' (protect_b :: a -> c m e n SU SU l' a)
+
 {- A type for pure labeled computations -}
 data Lbl (l::KPrin) a where
   UnsafeMkLbl :: { unsafeRunLbl :: a } -> Lbl l a
@@ -88,6 +123,7 @@ lbl_unlabelU a = unsafeRunLbl a
 instance Labeled Lbl where
   label = lbl_label
   bind = lbl_bind
+  unsafeUnlabel = unsafeRunLbl
   unlabelPT = lbl_unlabelPT 
   unlabelU = lbl_unlabelU
 
@@ -126,3 +162,25 @@ instance Monad e => FLA CtlT e Lbl where
   apply   = ifc_apply
   unsafeProtect = UnsafeIFC
   runFLA  = runIFC
+
+{- A transformer for effectful labeled computations -}
+data ClrT m e n (β :: KPrin) (pc :: KPrin) (l :: KPrin) a where
+  UnsafeClr :: { runClr :: m e n pc l a } -> ClrT m e n β pc l a
+
+type BIFC e β pc l a = ClrT CtlT e Lbl β pc l a
+
+bfla_lift :: FLA m e n => n l a -> ClrT m e n β pc l a
+bfla_lift  x = UnsafeClr $ unsafeProtect $ Prelude.return x
+            
+bfla_ebind :: (FLA m e n, l ⊑ l', l ⊑ pc, l ⊑ β) => n l a -> (a -> ClrT m e n β pc l' b) -> ClrT m e n β' pc' l' b
+bfla_ebind x f = UnsafeClr $ unsafeProtect $ runFLA . runClr $ f $ unsafeUnlabel x
+
+bfla_apply :: (FLA m e n, pc ⊑ pc', pc ⊑ pc'', β' ⊑ β, β'' ⊑ β) => ClrT m e n β pc l a -> (n l a -> ClrT m e n β' pc' l' b) -> ClrT m e n β' pc'' l' b
+bfla_apply x f = UnsafeClr $ unsafeProtect $ do a <- runFLA $ runClr x
+                                                runFLA $ runClr (f a)
+
+instance FLA m e n => BFLA ClrT m e n where
+  lift_b      = bfla_lift 
+  ebind_b     = bfla_ebind
+  apply_b     = bfla_apply
+  clearBounds = runClr
