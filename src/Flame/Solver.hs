@@ -134,7 +134,7 @@ decideActsFor flrec givens  _deriveds wanteds = do
     -- XXX: natnormalise zonkCt's these givens, but that appears to remove the ones I care about.
     -- TODO: should also extract NomEq predicates on principal vars to peg their bounds: just subst them everywhere, I guess?
     let unit_givens = concat $ map (toActsFor flrec) givens
-    case unit_wanteds of
+    case {- pprTrace "wanted: " (ppr unit_wanteds) -} unit_wanteds of
       [] -> return (TcPluginOk [] [])
       _  -> do
         sr <- solvePrins flrec unit_givens unit_wanteds
