@@ -134,7 +134,7 @@ decideActsFor flrec givens  _deriveds wanteds = do
     -- XXX: natnormalise zonkCt's these givens, but that appears to remove the ones I care about.
     -- TODO: should also extract NomEq predicates on principal vars to peg their bounds: just subst them everywhere, I guess?
     let unit_givens = concat $ map (toActsFor flrec) givens
-    case {- pprTrace "wanted: " (ppr unit_wanteds) -} unit_wanteds of
+    case unit_wanteds of
       [] -> return (TcPluginOk [] [])
       _  -> do
         sr <- solvePrins flrec unit_givens unit_wanteds
@@ -145,8 +145,8 @@ decideActsFor flrec givens  _deriveds wanteds = do
                 newWanteds = snd evs
             return (TcPluginOk solved newWanteds)
           Impossible eq -> do
-            -- return (TcPluginContradiction [fromActsFor eq])
-            return (TcPluginOk [] [])
+             --return (TcPluginContradiction [fromActsFor eq])
+             return (TcPluginOk [] [])
 
 solvePrins :: FlameRec
              -> [ActsForCt]
@@ -231,8 +231,11 @@ solvePrins flrec givens afcts =
     refineBoundsIfNeeded flrec isConf solved (af@(i,(u@(N cp ip), v@(N cq iq))):iafs) =
       let p      = if isConf then cp else ip
           q      = if isConf then cq else iq
-          bounds = getBounds flrec isConf 
-      in case actsForJ flrec isConf p q of
+          bounds = getBounds flrec isConf
+          p' = substJNorm bounds isConf p
+          q' = substJNorm bounds isConf q
+      -- XXX: l bounded with a \/ b doesn't act for a \/ b
+      in case actsForJ flrec isConf p' q' of
         Just pf -> Win
         Nothing -> 
           case uniqSetToList $ fvJNorm p of 

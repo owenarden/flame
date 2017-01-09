@@ -37,7 +37,7 @@ actsFor :: FlameRec -> CoreNorm -> CoreNorm -> Maybe ActsForProof
 actsFor flrec p q 
   | p == top = Just AFTop
   | q == bot = Just AFBot
-  | p == q    = Just AFRefl
+  | p == q   = Just AFRefl
   | otherwise = do
           confPf <- actsForJ flrec True (conf p) (conf q)
           integPf <- actsForJ flrec False (integ p) (integ q)
@@ -114,8 +114,8 @@ actsForB flrec isConf _p _q
       Just del -> Just $ AFDel (_p,_q) -- TODO: encode bounds in proof
       _ -> Nothing
   where
-    p = substBase bounds isConf _p
-    q = substBase bounds isConf _q
+    p = J [M [_p]]
+    q = J [M [_q]]
     top :: CoreJNorm
     top = J [M [T]]
     bot :: CoreJNorm

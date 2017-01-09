@@ -78,6 +78,8 @@ class FLA m e n => BFLA c m e n where
   
   clearBounds :: c m e n β pc l a -> m e n pc l a
 
+  unsafeBound ::  m e n pc l a -> c m e n β pc l a
+
   protect_b :: a -> c m e n β pc l a
   protect_b = lift_b . label
 
@@ -89,11 +91,11 @@ class FLA m e n => BFLA c m e n where
               ((∇) p :≽ (∇) q) -> (((∇) p ≽ (∇) q) => c m e n β pc l a) -> c m e n β pc l a
   vassume = unsafeAssume
 
-  cassume :: (pc ≽ (∇) q, (∇) p ≽ (∇) q, β ≽ ((∇) q)) => 
+  cassume :: (pc ≽ (∇) q, (∇) p ≽ (∇) q, ((∇) p) ⊑ β)   => 
               (C p :≽ C q) -> ((C p ≽ C q) => c m e n β pc l a) -> c m e n β pc l a
   cassume = unsafeAssume
 
-  eassume :: (pc ≽ (∇) (Δ q), (∇) (Δ p) ≽ (∇) (Δ q), β ≽ ((∇) (Δ p))) => 
+  eassume :: (pc ≽ (∇) (Δ q), (∇) (Δ p) ≽ (∇) (Δ q), ((∇) (Δ p)) ⊑ β) => 
               (Δ p :≽ Δ q) -> ((Δ p ≽ Δ q) => c m e n β pc l a) -> c m e n β pc l a
   eassume = unsafeAssume
 
@@ -169,7 +171,6 @@ data ClrT m e n (β :: KPrin) (pc :: KPrin) (l :: KPrin) a where
 
 type BIFC e β pc l a = ClrT CtlT e Lbl β pc l a
 
-
 bfla_lift :: FLA m e n => n l a -> ClrT m e n β pc l a
 bfla_lift  x = UnsafeClr $ unsafeProtect $ Prelude.return x
 
@@ -180,8 +181,16 @@ bfla_apply :: (FLA m e n, pc ⊑ pc', pc ⊑ pc'', β' ⊑ β) => ClrT m e n β 
 bfla_apply x f = UnsafeClr $ unsafeProtect $ do a <- runFLA $ runClr x
                                                 runFLA $ runClr (f a)
 
-instance FLA m e n => BFLA ClrT m e n where
+-- instance FLA m e n => BFLA ClrT m e n where
+--   lift_b      = bfla_lift 
+--   ebind_b     = bfla_ebind
+--   apply_b     = bfla_apply
+--   clearBounds = runClr
+--   unsafeBound = UnsafeClr
+
+instance FLA CtlT e Lbl => BFLA ClrT CtlT e Lbl where
   lift_b      = bfla_lift 
   ebind_b     = bfla_ebind
   apply_b     = bfla_apply
   clearBounds = runClr
+  unsafeBound = UnsafeClr

@@ -11,8 +11,8 @@
 
 module Flame.IFC
        ( FLA(..), IFC, BFLA(..), BIFC
-       , Labeled(..), Lbl, CtlT
-       , runIFC
+       , Labeled(..), Lbl, CtlT, ClrT
+       , runIFC, runClr
        , (:≽), (:=>=), (:⊑), (:<:)  -- Delegation types
        , Def(..), (≽), (=>=), (⊑), (<:)     -- Delegation constructors
        )
