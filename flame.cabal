@@ -28,14 +28,10 @@ library
                     Flame.TCB.Assume, 
                     Flame.IFC,
                     Flame.Runtime.IO,
-                    Flame.Runtime.IFCRef, 
+                    Flame.Runtime.FLARef, 
                     Flame.Runtime.Time,
                     Flame.Runtime.Prelude
 
--- Flame.Runtime.NMTime,
--- Flame.Runtime.NMIO, 
--- Flame.Runtime.NMIFCRef, 
--- Flame.Runtime.NMPrelude,
   -- other-modules:       
   other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
                     RankNTypes, FlexibleInstances, FlexibleContexts, 

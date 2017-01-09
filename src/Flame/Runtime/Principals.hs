@@ -441,4 +441,3 @@ subsequencesOfSize n xs = let l = length xs
 cartProd :: JNorm -> [JNorm]
 cartProd (J ms) = [J $ map mkM ps | ps <- sequence [bs | (M bs) <- ms]]
   where mkM p = M [p]
-
