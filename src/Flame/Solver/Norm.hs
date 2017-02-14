@@ -210,6 +210,8 @@ reifyMNorm flrec = foldr1 (\t1 t2 -> mkTyConApp (kdisj flrec) [t1,t2])
 
 reifyBase :: FlameRec -> CoreBase -> Type
 reifyBase flrec (V v)   = mkTyVarTy v
+reifyBase flrec (VarEye v)   = mkTyConApp (keye flrec) [mkTyVarTy v]
+reifyBase flrec (VarVoice v) = mkTyConApp (kvoice flrec) [mkTyVarTy v]
 reifyBase flrec (P s)   = mkTyConApp (kname flrec) [s]
 reifyBase flrec B       = mkTyConApp (kbot flrec) []
 reifyBase flrec T       = mkTyConApp (ktop flrec) []

@@ -23,7 +23,7 @@ import Flame.Runtime.IO
 import Flame.IFC 
 import qualified System.IO as SIO
 import Data.IORef as SIO
-import Flame.Runtime.IFCRef as Ref
+import Flame.Runtime.FLARef as Ref
 
 {- Static principals -}
 alice = SName (Proxy :: Proxy "Alice")
