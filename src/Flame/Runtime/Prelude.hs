@@ -26,16 +26,16 @@ ifThenElse :: Bool -> a -> a -> a
 ifThenElse True  t _ = t
 ifThenElse False _ f = f
 
-return :: FLA m e n => a -> m e n pc l a
+return :: IFC m e n => a -> m e n pc l a
 return = protect
 
-(>>=) :: (FLA m e n, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
+(>>=) :: (IFC m e n, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
          => m e n pc l a
          -> (a -> m e n pc' l' b)
          -> m e n pc'' l' b
 (>>=) = use
 
-(>>) :: (FLA m e n, pc ⊑ pc', pc ⊑ pc'')
+(>>) :: (IFC m e n, pc ⊑ pc', pc ⊑ pc'')
          => m e n pc l a
          -> m e n pc' l' b
          -> m e n pc'' l' b

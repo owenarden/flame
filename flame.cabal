@@ -28,7 +28,7 @@ library
                     Flame.TCB.Assume, 
                     Flame.IFC,
                     Flame.Runtime.IO,
-                    Flame.Runtime.FLARef, 
+                    Flame.Runtime.IFCRef, 
                     Flame.Runtime.Time,
                     Flame.Runtime.Prelude
 

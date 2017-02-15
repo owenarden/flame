@@ -35,7 +35,7 @@ class Labeled (n :: KPrin -> * -> *) where
   relabel a = bind a label
 
 {- A monad-like type class for for flow-limited authorization -}
-class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) e n where
+class (Monad e, Labeled n) => IFC (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) e n where
   lift   :: n l a -> m e n pc l a
 
   apply  :: (pc ⊑ pc', pc ⊑ pc'') => m e n pc l a -> (n l a -> m e n pc' l' b) -> m e n pc'' l' b
@@ -44,7 +44,7 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
 
   unsafeProtect :: e (n l a) -> m e n pc l a
 
-  runFLA :: m e n pc l a -> e (n l a)
+  runIFC :: m e n pc l a -> e (n l a)
 
   protect :: a -> m e n pc l a
   protect = lift . label
@@ -53,10 +53,6 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
          m e n pc l a -> (a -> m e n pc' l' b) -> m e n pc'' l' b
   use x f = apply x $ \x' -> (ebind x' f :: m e n pc' l' b)
  
-  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
-              (p :≽ q) -> ((p ≽ q) => m e n pc l a) -> m e n pc l a
-  assume = unsafeAssume
-
   reprotect :: forall l l' pc pc' a. (l ⊑ l', pc ⊑ pc') => m e n pc l a -> m e n pc' l' a 
   reprotect x = use x (protect :: a -> m e n SU l' a)
 
@@ -66,6 +62,30 @@ class (Monad e, Labeled n) => FLA (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
   fjoin  :: forall l l' pc pc' a. (l ⊑ l',  pc ⊑ pc', l ⊑ pc') => m e n pc l (m e n pc' l' a) -> m e n pc' l' a
   fjoin x = use x id
 
+class IFC m e n => FLA m e n where
+  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
+              (p :≽ q) -> ((p ≽ q) => m e n pc l a) -> m e n pc l a
+  assume = unsafeAssume
+
+class IFC m e n => NMIF m e n where
+  declassify :: (((C pc) ⊓ (C l')) ⊑ (C l),
+                 (C l') ⊑ ((C l) ⊔ (Δ (I l'))),
+                 (C l') ⊑ ((C l) ⊔ (Δ (I l'))),
+                 (I l') ⊑ (I l)) =>
+             m e n pc l' a -> m e n pc l a 
+  declassify x = unsafeProtect $ do
+    x' <- runIFC x 
+    return $ label (unsafeUnlabel x')
+  endorse    :: (((I pc) ⊓ (I l')) ⊑ (I l),
+                 (I l') ⊑ ((I l) ⊔ ((∇) (C l'))),
+                 (I l') ⊑ ((I l) ⊔ ((∇) (C l'))),
+                 (C l') ⊑ (C l)) =>
+             m e n pc l' a -> m e n pc l a 
+  endorse x = unsafeProtect $ do
+    x' <- runIFC x 
+    return $ label (unsafeUnlabel x')
+
+{-
 class FLA m e n => BFLA c m e n where
   lift_b :: n l a -> c m e n β pc l a
 
@@ -101,6 +121,7 @@ class FLA m e n => BFLA c m e n where
 
   reprotect_b :: (l ⊑ l', pc ⊑ pc', l ⊑ b) => c m e n b pc l a -> c m e n b pc' l' a 
   reprotect_b x = apply_b x $ \x' -> ebind_b x' protect_b 
+-}
 
 {- A type for pure labeled computations -}
 data Lbl (l::KPrin) a where
@@ -143,43 +164,71 @@ instance Labeled Lbl where
 --  (>>=) = bind
 
 {- A transformer for effectful labeled computations -}
-data CtlT e (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a where
-  UnsafeIFC :: { runIFC :: e (n l a) } -> CtlT e n pc l a
+data FLACT e (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a where
+  UnsafeFLAC :: { runFLAC :: e (n l a) } -> FLACT e n pc l a
 
-type IFC e pc l a = CtlT e Lbl pc l a
+type FLAC e pc l a = FLACT e Lbl pc l a
 
-ifc_lift :: Monad e => Lbl l a -> IFC e pc l a
-ifc_lift  x = UnsafeIFC $ Prelude.return x
-            
-ifc_ebind :: (Monad e, l ⊑ l', l ⊑ pc') => Lbl l a -> (a -> IFC e pc' l' b) -> IFC e pc l' b
-ifc_ebind x f = UnsafeIFC $ runIFC $ f $ unsafeRunLbl x
+flac_lift :: Monad e => Lbl l a -> FLAC e pc l a
+flac_lift  x = UnsafeFLAC $ Prelude.return x
 
-ifc_apply :: (Monad e, pc ⊑ pc', pc ⊑ pc'') => IFC e pc l a -> (Lbl l a -> IFC e pc' l' b) -> IFC e pc'' l' b
-ifc_apply x f = UnsafeIFC $ do a <- runIFC x
-                               runIFC $ f a
+flac_ebind :: (Monad e, l ⊑ l', l ⊑ pc') => Lbl l a -> (a -> FLAC e pc' l' b) -> FLAC e pc l' b
+flac_ebind x f = UnsafeFLAC $ runFLAC $ f $ unsafeRunLbl x
 
-instance Monad e => FLA CtlT e Lbl where
-  lift    = ifc_lift 
-  ebind   = ifc_ebind
-  apply   = ifc_apply
-  unsafeProtect = UnsafeIFC
-  runFLA  = runIFC
+flac_apply :: (Monad e, pc ⊑ pc', pc ⊑ pc'') => FLAC e pc l a -> (Lbl l a -> FLAC e pc' l' b) -> FLAC e pc'' l' b
+flac_apply x f = UnsafeFLAC $ do
+                   a <- runFLAC x
+                   runFLAC $ f a
+
+instance Monad e => IFC FLACT e Lbl where
+  lift    = flac_lift 
+  ebind   = flac_ebind
+  apply   = flac_apply
+  unsafeProtect = UnsafeFLAC
+  runIFC  = runFLAC
+
+instance Monad e => FLA FLACT e Lbl where {}
 
 {- A transformer for effectful labeled computations -}
-data ClrT m e n (β :: KPrin) (pc :: KPrin) (l :: KPrin) a where
-  UnsafeClr :: { runClr :: m e n pc l a } -> ClrT m e n β pc l a
+data NMT e (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a where
+  UnsafeNM :: { runNM :: e (n l a) } -> NMT e n pc l a
 
-type BIFC e β pc l a = ClrT CtlT e Lbl β pc l a
+type NM e pc l a = NMT e Lbl pc l a
 
-bfla_lift :: FLA m e n => n l a -> ClrT m e n β pc l a
-bfla_lift  x = UnsafeClr $ unsafeProtect $ Prelude.return x
+nmif_lift :: Monad e => Lbl l a -> NM e pc l a
+nmif_lift  x = UnsafeNM $ Prelude.return x
 
-bfla_ebind :: (FLA m e n, l ⊑ l', l ⊑ pc, l ⊑ β, β ⊑ β') => n l a -> (a -> ClrT m e n β pc l' b) -> ClrT m e n β' pc' l' b
-bfla_ebind x f = UnsafeClr $ unsafeProtect $ runFLA . runClr $ f $ unsafeUnlabel x
+nmif_ebind :: (Monad e, l ⊑ l', l ⊑ pc') => Lbl l a -> (a -> NM e pc' l' b) -> NM e pc l' b
+nmif_ebind x f = UnsafeNM $ runNM $ f $ unsafeRunLbl x
 
-bfla_apply :: (FLA m e n, pc ⊑ pc', pc ⊑ pc'', β' ⊑ β) => ClrT m e n β pc l a -> (n l a -> ClrT m e n β' pc' l' b) -> ClrT m e n β' pc'' l' b
-bfla_apply x f = UnsafeClr $ unsafeProtect $ do a <- runFLA $ runClr x
-                                                runFLA $ runClr (f a)
+nmif_apply :: (Monad e, pc ⊑ pc', pc ⊑ pc'') => NM e pc l a -> (Lbl l a -> NM e pc' l' b) -> NM e pc'' l' b
+nmif_apply x f = UnsafeNM $ do
+                   a <- runNM x
+                   runNM $ f a
+
+instance Monad e => IFC NMT e Lbl where
+  lift    = nmif_lift 
+  ebind   = nmif_ebind
+  apply   = nmif_apply
+  unsafeProtect = UnsafeNM
+  runIFC  = runNM
+
+instance Monad e => NMIF NMT e Lbl where {}
+
+--data ClrT m e n (β :: KPrin) (pc :: KPrin) (l :: KPrin) a where
+--  UnsafeClr :: { runClr :: m e n pc l a } -> ClrT m e n β pc l a
+--
+--type BIFC e β pc l a = ClrT CtlT e Lbl β pc l a
+--
+--bfla_lift :: FLA m e n => n l a -> ClrT m e n β pc l a
+--bfla_lift  x = UnsafeClr $ unsafeProtect $ Prelude.return x
+--
+--bfla_ebind :: (FLA m e n, l ⊑ l', l ⊑ pc, l ⊑ β, β ⊑ β') => n l a -> (a -> ClrT m e n β pc l' b) -> ClrT m e n β' pc' l' b
+--bfla_ebind x f = UnsafeClr $ unsafeProtect $ runFLA . runClr $ f $ unsafeUnlabel x
+--
+--bfla_apply :: (FLA m e n, pc ⊑ pc', pc ⊑ pc'', β' ⊑ β) => ClrT m e n β pc l a -> (n l a -> ClrT m e n β' pc' l' b) -> ClrT m e n β' pc'' l' b
+--bfla_apply x f = UnsafeClr $ unsafeProtect $ do a <- runFLA $ runClr x
+--                                                runFLA $ runClr (f a)
 
 -- instance FLA m e n => BFLA ClrT m e n where
 --   lift_b      = bfla_lift 
@@ -188,9 +237,9 @@ bfla_apply x f = UnsafeClr $ unsafeProtect $ do a <- runFLA $ runClr x
 --   clearBounds = runClr
 --   unsafeBound = UnsafeClr
 
-instance FLA CtlT e Lbl => BFLA ClrT CtlT e Lbl where
-  lift_b      = bfla_lift 
-  ebind_b     = bfla_ebind
-  apply_b     = bfla_apply
-  clearBounds = runClr
-  unsafeBound = UnsafeClr
+--instance FLA CtlT e Lbl => BFLA ClrT CtlT e Lbl where
+--  lift_b      = bfla_lift 
+--  ebind_b     = bfla_ebind
+--  apply_b     = bfla_apply
+--  clearBounds = runClr
+--  unsafeBound = UnsafeClr

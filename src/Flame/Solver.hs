@@ -187,8 +187,8 @@ solvePrins flrec givens afcts =
                , search flrec False [] iafs [])
       tcPluginTrace "search result" (ppr sr)
       case sr of
-        (Lose af, _) -> return (Impossible af)
-        (_, Lose af) -> return (Impossible af)
+        (Lose af, _) -> pprTrace "impossible: " (ppr af) $ return (Impossible af)
+        (_, Lose af) -> pprTrace "impossible: " (ppr af) $ return (Impossible af)
         (cnf, intg) -> do
           let cnf' = resultBounds cnf
               intg' = resultBounds intg
