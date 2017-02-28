@@ -30,7 +30,7 @@ import Data.Text (Text)
 import Data.Time (LocalTime(..), TimeZone(..), ZonedTime(..), hoursToTimeZone, midday, fromGregorian, utcToZonedTime, getCurrentTime, getCurrentTimeZone)
 import GHC.Generics (Generic)
 import Network.Wai (Application)
---import Network.Wai.Handler.Warp (run)
+import Network.Wai.Handler.Warp (run)
 import System.IO as SIO
 import Servant ((:>), (:<|>)(..), ReqBody, Capture, Get, Post, Delete, Proxy(..), Server, serve)
 import Servant.Docs (docs, ToCapture(..), DocCapture(..), ToSample(..), markdown, singleSample, HasDocs(..))
@@ -71,7 +71,7 @@ import Flame.Principals
 import Flame.Runtime.Time as T
 import Flame.Runtime.STM
 import qualified Flame.Runtime.Prelude as F hiding (id)
-import Flame.Runtime.Warp as F (run)
+--import Flame.Runtime.Warp as F (run)
 import Flame.Runtime.Sealed
 import Data.String
 
@@ -94,18 +94,6 @@ instance ToJSON a => ToJSON (Lbl Client a) where
 deriving instance Generic (Lbl Client a)
 
 type SealedHandler e a = SealedIFC FLACT e Lbl a
-
-mkFLACHandler :: (Monad e, AppServer ≽ Client) =>
-                 Prin
-              -> (forall client. (AppServer ≽ Client, Client === client) =>
-                   DPrin client -> FLAC e (I client) client a)
-              -> FLAC IO (I AppServer) (I AppServer) (SealedHandler e a)
-mkFLACHandler p@(Name n) func =  -- XXX: Generalize to check for (p ≽ (I p ∧ (∇) p))
-  withPrin p $ \(client :: DPrin client) -> 
-    let sclient = (st client) in
-      assume2 (currentClient ≽ sclient) $
-        assume2 (sclient ≽ currentClient) $
-          protect $ sealIFC (client^←) client $ func client
 
 {- Auth specific -}
 type Alice = KName "Alice"
@@ -173,7 +161,7 @@ type MemoAPI =
           :> Post '[JSON] (Lbl Client Memo) 
     :<|> "memos" :> AuthProtect "cookie-auth"
          :> Capture "id" Int
-         :>  Delete '[JSON] ()
+         :>  Delete '[JSON] (Lbl Client ())
 
 memoAPI :: Proxy MemoAPI
 memoAPI = Proxy
@@ -198,16 +186,20 @@ main = do
         _     -> putStrLn "unknown option"
 
 runApp :: IO ()
-runApp = run 8080 $ app (newIFCTVarIO initialMemoDB)
+runApp = 
+  run 8080 $ app store
   where
+    store :: MemoStore
+    store = use initialMemoStore $ \store -> newIFCTVarIO store
+
     newMemoDB :: DPrin p
               -> FLAC IO (I AppServer) (I AppServer)
                   (IFCTVar p (Int, M.Map Int Memo))
     newMemoDB p = newIFCTVarIO (0, M.empty)
 
-    initialMemoDB :: FLAC IO (I AppServer) (I AppServer)
-                      (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
-    initialMemoDB =
+    initialMemoStore :: FLAC IO (I AppServer) (I AppServer)
+                         (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
+    initialMemoStore =
       withPrin alice $ \alice' -> withPrin bob $ \bob' -> withPrin carol $ \carol' -> 
         use (newMemoDB alice') $ \aliceDB ->
         use (newMemoDB bob')   $ \bobDB ->
@@ -226,24 +218,36 @@ doc = markdown $ docs memoAPI
 server :: MemoStore -> Server MemoAPI
 server s = getMemosH :<|> postMemoH :<|> deleteMemoH
   where
-    getHandler :: FLAC IO (I AppServer) (I AppServer) (SealedHandler e a)
-               -> IO (SealedHandler e a)
-    getHandler mh = do
-      h <- runFLAC mh
-      return $ unlabelPT $ relabel h
-    deleteMemoH p i = liftIO $ getHandler $
-                        use s $ \db -> 
-                        use p $ \client -> mkFLACHandler @IO @() client (deleteMemo db i)
-    getMemosH p     = liftIO $ getHandler $
-                        use s $ \db -> 
-                        use p $ \client -> mkFLACHandler @IO @[Memo] client (getMemos db)
-    postMemoH p t   = liftIO $ getHandler $
-                        use s $ \db -> 
-                        use p $ \client -> mkFLACHandler @IO @Memo client (postMemo db t)
+    deleteMemoH :: FLAC IO (I AppServer) (I AppServer) Prin
+                 -> Int
+                 -> Handler (Lbl Client ())
+    deleteMemoH p i = mkHandler p $ (\client db -> deleteMemo client db i)
+
+    getMemosH :: FLAC IO (I AppServer) (I AppServer) Prin
+              -> Handler (Lbl Client [Memo])
+    getMemosH p = mkHandler p $ (\client db -> getMemos client db)
+
+    postMemoH :: FLAC IO (I AppServer) (I AppServer) Prin
+              -> ReqMemo
+              -> Handler (Lbl Client Memo)
+    postMemoH p r   = mkHandler p $ (\client db -> postMemo client db r)
+
+    mkHandler :: FLAC IO (I AppServer) (I AppServer) Prin
+              -> (forall client. (Client === client) =>
+                   DPrin client -> MemoDB -> FLAC IO (I client) client a)
+              -> Handler (Lbl Client a)
+    mkHandler p f = liftIO $ runFLAC @IO @Lbl @(I Client) @Client $
+                     use s $ \db -> 
+                     use p $ \client ->
+                      withPrin client $ \dclient ->
+                       let sclient = (st dclient) in
+                        assume2 (currentClient ≽ sclient) $
+                         assume2 (sclient ≽ currentClient) $
+                          reprotect $ f dclient db
 
 getMemos :: forall client. (Client === client) =>
-            MemoDB
-         -> DPrin client
+            DPrin client
+         -> MemoDB
          -> FLAC IO (I client) client [Memo]
 getMemos store client = undefined
 --getMemos store client =
@@ -251,9 +255,9 @@ getMemos store client = undefined
 --    protect $ M.elems m
 
 postMemo :: forall client. (Client === client) =>
-            MemoDB
+            DPrin client
+         -> MemoDB
          -> ReqMemo
-         -> DPrin client
          -> FLAC IO (I client) client Memo
 postMemo store req client = undefined
 --postMemo store req client =
@@ -268,9 +272,9 @@ postMemo store req client = undefined
 --          protect m
 
 deleteMemo :: forall client. (Client === client) =>
-              MemoDB
+              DPrin client
+           -> MemoDB
            -> Int
-           -> DPrin client
            -> FLAC IO (I client) client ()
 deleteMemo store i client = undefined
 --deleteMemo store i client = atomically $
@@ -299,8 +303,8 @@ instance ToSample (Lbl Client Memo) where
 instance ToSample (Lbl Client [Memo]) where
     toSamples _ = singleSample $ label [sampleMemo]
 
-instance ToSample () where
-    toSamples _ = singleSample ()
+instance ToSample (Lbl Client ()) where
+    toSamples _ = singleSample $ label ()
 
 sampleMemo :: Memo
 sampleMemo = Memo
