@@ -30,7 +30,7 @@ import Data.Text (Text)
 import Data.Time (LocalTime(..), TimeZone(..), ZonedTime(..), hoursToTimeZone, midday, fromGregorian, utcToZonedTime, getCurrentTime, getCurrentTimeZone)
 import GHC.Generics (Generic)
 import Network.Wai (Application)
-import Network.Wai.Handler.Warp (run)
+--import Network.Wai.Handler.Warp (run)
 import System.IO as SIO
 import Servant ((:>), (:<|>)(..), ReqBody, Capture, Get, Post, Delete, Proxy(..), Server, serve)
 import Servant.Docs (docs, ToCapture(..), DocCapture(..), ToSample(..), markdown, singleSample, HasDocs(..))
@@ -47,7 +47,6 @@ import Data.Proxy                       (Proxy (Proxy))
 import Data.Text                        (Text, pack)
 import GHC.Generics                     (Generic)
 import Network.Wai                      (Request, requestHeaders)
-import Network.Wai.Handler.Warp         (run)
 import Servant.API                      ((:<|>) ((:<|>)), (:>), BasicAuth,
                                           Get, JSON)
 import Servant.API.BasicAuth            (BasicAuthData (BasicAuthData))
@@ -108,25 +107,6 @@ mkFLACHandler p@(Name n) func =  -- XXX: Generalize to check for (p ≽ (I p ∧
         assume2 (sclient ≽ currentClient) $
           protect $ sealIFC (client^←) client $ func client
 
---runFLAC @_ @Lbl @(I AppServer ∧ I Client ∧ I client ∧ (∇) client) @Client $
---mkFLACHandler :: (forall client pc l. (AppServer ≽ Client, Client === client) =>
---                                         DPrin client
---                                      -> FLAC e (I client) client a)
---              -> FLAC IO (I AppServer) (I AppServer) Prin
---              -> e (Lbl Client a)
---mkFLACHandler func lp =
---
---
---    use lp $ \p ->
---case p of
---      p@(Name n) -> withPrin p $ \(client_ :: DPrin client) -> 
---        runFLAC @_ @Lbl @(I AppServer ∧ I Client ∧ I client ∧ (∇) client) @Client $
---        let client = (st client_) in
---          assume2 (appServer ≽ currentClient) $
---           assume2 (currentClient ≽ client) $
---             assume2 (client ≽ currentClient) $
---               reprotect $ func client_
-
 {- Auth specific -}
 type Alice = KName "Alice"
 alice = Name "Alice"
@@ -166,9 +146,9 @@ authHandler =
         Nothing -> throwError (err401 { errBody = "Missing auth header" })
         Just authCookieKey -> lookupPrin authCookieKey
   in mkAuthHandler handler
-{-
+
 -- | We need to specify the data returned after authentication
-type instance AuthServerData (AuthProtect "cookie-auth") = Lbl PT Prin
+type instance AuthServerData (AuthProtect "cookie-auth") = FLAC IO (I AppServer) (I AppServer) Prin
 
 {- memo specific -}
 data Memo = Memo
@@ -198,15 +178,15 @@ type MemoAPI =
 memoAPI :: Proxy MemoAPI
 memoAPI = Proxy
 
-type MemoStoreC = FLAC IO (I AppServer) (I AppServer) MemoStore
-type MemoStore = IFCTVar (I AppServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
+type MemoStore = FLAC IO (I AppServer) (I AppServer) MemoDB
+type MemoDB = IFCTVar (I AppServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
 
 -- TODO: A SealedMap that enforces the envariant that mapped values are sealed by their keys?
 
 -- | The context that will be made available to request handlers. We supply the
 -- "cookie-auth"-tagged request handler defined above, so that the 'HasServer' instance
 -- of 'AuthProtect' can extract the handler and run it on the request.
-genAuthServerContext :: Context (AuthHandler Request (Lbl PT Prin) ': '[])
+genAuthServerContext :: Context (AuthHandler Request (FLAC IO (I AppServer) (I AppServer) Prin) ': '[])
 genAuthServerContext = authHandler :. EmptyContext
 
 main :: IO ()
@@ -237,21 +217,32 @@ runApp = run 8080 $ app (newIFCTVarIO initialMemoDB)
                            , (carol, sealType carol' carolDB)
                            ]
 
-app :: MemoStoreC -> Application
+app :: MemoStore -> Application
 app s = serveWithContext memoAPI genAuthServerContext $ server s
 
 doc :: String
 doc = markdown $ docs memoAPI
 
-server :: MemoStoreC -> Server MemoAPI
+server :: MemoStore -> Server MemoAPI
 server s = getMemosH :<|> postMemoH :<|> deleteMemoH
   where
-    getMemosH p     = liftIO $ mkFLACHandler (getMemos s) p 
-    postMemoH p t   = liftIO $ mkFLACHandler (postMemo s t) p
-    deleteMemoH p i = liftIO $ mkFLACHandler @IO @() (deleteMemo s i) p >> return ()
+    getHandler :: FLAC IO (I AppServer) (I AppServer) (SealedHandler e a)
+               -> IO (SealedHandler e a)
+    getHandler mh = do
+      h <- runFLAC mh
+      return $ unlabelPT $ relabel h
+    deleteMemoH p i = liftIO $ getHandler $
+                        use s $ \db -> 
+                        use p $ \client -> mkFLACHandler @IO @() client (deleteMemo db i)
+    getMemosH p     = liftIO $ getHandler $
+                        use s $ \db -> 
+                        use p $ \client -> mkFLACHandler @IO @[Memo] client (getMemos db)
+    postMemoH p t   = liftIO $ getHandler $
+                        use s $ \db -> 
+                        use p $ \client -> mkFLACHandler @IO @Memo client (postMemo db t)
 
 getMemos :: forall client. (Client === client) =>
-            MemoStore
+            MemoDB
          -> DPrin client
          -> FLAC IO (I client) client [Memo]
 getMemos store client = undefined
@@ -260,7 +251,7 @@ getMemos store client = undefined
 --    protect $ M.elems m
 
 postMemo :: forall client. (Client === client) =>
-            MemoStore
+            MemoDB
          -> ReqMemo
          -> DPrin client
          -> FLAC IO (I client) client Memo
@@ -277,7 +268,7 @@ postMemo store req client = undefined
 --          protect m
 
 deleteMemo :: forall client. (Client === client) =>
-              MemoStore
+              MemoDB
            -> Int
            -> DPrin client
            -> FLAC IO (I client) client ()
@@ -327,4 +318,3 @@ instance (ToAuthInfo (AuthProtect "cookie-auth"), HasDocs api) => HasDocs (AuthP
 
 instance ToAuthInfo (AuthProtect "cookie-auth") where
   toAuthInfo p = DocAuthentication "servant-auth-cookie" "A key in the principal database"
- -} 
