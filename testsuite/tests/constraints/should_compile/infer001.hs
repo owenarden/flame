@@ -14,9 +14,9 @@ alice  = SName (Proxy :: Proxy "Alice")
 type Alice = KName "Alice"
 
 inputPass :: SPrin client
-            -> FLAHandle (I client)
-            -> FLAHandle (C client)
-            -> IFC IO (I Alice) (I Alice) String
+            -> IFCHandle (I client)
+            -> IFCHandle (C client)
+            -> FLAC IO (I Alice) (I Alice) String
 inputPass client stdin stdout = do
       {- Endorse the guess to have Alice's integrity -}
       assume ((client*←) ≽ (alice*←)) $

@@ -21,18 +21,13 @@ aliceSecret = label "secret"
 
 unifyMe :: Maybe a -> IO ()
 unifyMe ma = let stdout = mkStdout (SBot*→) in
-        do _ <- runIFC $
+        do _ <- runFLAC @IO @Lbl @(I Alice) @KBot $
                   case ma of
                     Just a ->
                       {- Use the granted authority print Alice's secret -}
                       assume ((*∇) SBot ≽ (*∇) alice) $ assume (SBot ≽ alice) $
                         ebind aliceSecret $ \secret ->
-                        -- this explicit application necessary because GHC does not
-                        -- unify variables under implications.
-                        -- This restriction means it is safe to unify principal kinded
-                        -- type variables based on assume'd givens.
-                        -- See infer003, which replaces KBot below with Alice
-                        hPutStrLn @_ @Lbl @KBot @(C KBot) @KBot stdout secret
+                        hPutStrLn stdout secret
                     Nothing ->             
-                        hPutStrLn @_ @Lbl @KBot @(C KBot) @KBot stdout "Incorrect password."
+                        hPutStrLn stdout "Incorrect password."
            return ()

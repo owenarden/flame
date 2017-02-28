@@ -10,11 +10,11 @@ inferPcFail001.hs:22:7:
       In an equation for ‘inputPass’:
           inputPass client stdin stdout = do { reprotect $ hGetLine stdin }
      Relevant bindings include
-        stdout :: FLAHandle (C client) (bound at inferPcFail001.hs:20:24)
-        stdin :: FLAHandle (I client) (bound at inferPcFail001.hs:20:18)
+        stdout :: IFCHandle (C client) (bound at inferPcFail001.hs:20:24)
+        stdin :: IFCHandle (I client) (bound at inferPcFail001.hs:20:18)
         client :: SPrin client (bound at inferPcFail001.hs:20:11)
         inputPass :: SPrin client
-                     -> FLAHandle (I client)
-                     -> FLAHandle (C client)
-                     -> IFC IO (I Alice) (I Alice) String
+                     -> IFCHandle (I client)
+                     -> IFCHandle (C client)
+                     -> FLAC IO (I Alice) (I Alice) String
           (bound at inferPcFail001.hs:20:1)
