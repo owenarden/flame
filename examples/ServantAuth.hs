@@ -237,14 +237,14 @@ server s = getMemosH :<|> postMemoH :<|> deleteMemoH
                    DPrin client -> MemoDB -> FLAC IO (I client) client a)
               -> Handler (Lbl Client a)
     mkHandler p f = liftIO $ runFLAC @IO @Lbl @(I Client ∧ I AppServer) @Client $
-                     use @_ @_ @_ @(I Client ∧ I AppServer) (reprotect s) $ \db -> 
-                     use @_ @_ @_ @(I Client ∧ I AppServer) (reprotect p) $ \client ->
+                     use (reprotect s) $ \db -> 
+                     use (reprotect p) $ \client ->
                       withPrin @(FLAC IO (I Client ∧ I AppServer) Client a) client $ \(dclient :: DPrin client) ->
                        let sclient = (st dclient) in
-                        assume2 @_ @_ @_ @(I Client ∧ I AppServer) ((currentClient*←) ≽ (appServer*←)) $
-                         assume2 @_ @_ @_ @(I Client ∧ I AppServer) (currentClient ≽ sclient) $
-                          assume2 @_ @_ @_ @(I Client ∧ I AppServer) (sclient ≽ currentClient) $
-                           reprotect @_ @_ @_ @client @Client @(I client) @(I Client ∧ I AppServer) $ f dclient db
+                        assume2 ((currentClient*←) ≽ (appServer*←)) $
+                         assume2 (currentClient ≽ sclient) $
+                          assume2 (sclient ≽ currentClient) $
+                           reprotect $ f dclient db
 
 getMemos :: forall client. (Client === client) =>
             DPrin client
