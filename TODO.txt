@@ -11,4 +11,3 @@
 3. implement FLA wrappers for caveats (Prin pc, Prin l, caveat).
 	- satisfy_exact(Bound l, Lbl l caveat)
 	- satisfy_general((Bound pc, Bound l, caveat) -> IFC pc l Bool)
-

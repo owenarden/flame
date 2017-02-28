@@ -28,7 +28,10 @@ library
                     Flame.TCB.Assume, 
                     Flame.IFC,
                     Flame.Runtime.IO,
+                    Flame.Runtime.Sealed,
                     Flame.Runtime.IFCRef, 
+                    Flame.Runtime.STM, 
+                    Flame.Runtime.Warp, 
                     Flame.Runtime.Time,
                     Flame.Runtime.Prelude
 
@@ -46,6 +49,10 @@ library
                     containers,
                     transformers,
                     time,
+                    text,
+                    stm, 
+                    warp, 
+                    wai,
                     ghc >= 7.10, 
                     ghc-tcplugins-extra
   hs-source-dirs:      src

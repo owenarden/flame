@@ -320,7 +320,7 @@ substBase bounds isConf (V tv) | not (isSkolemTyVar tv) = findWithDefault jbot t
 substBase bounds isConf (V tv) = J [M [V tv]]
 substBase bounds isConf (VarVoice tv) | not (isSkolemTyVar tv) = 
   if isConf then
-    jbot -- XXX: should have already been removed
+    undefined -- XXX: should have already been removed
   else
     integ (voiceOf (N (findWithDefault jbot tv bounds) jbot))
 substBase bounds isConf (VarVoice tv) = J [M [VarVoice tv]]
@@ -328,7 +328,7 @@ substBase bounds isConf (VarEye tv) | not (isSkolemTyVar tv) =
   if isConf then
     conf (eyeOf (N jbot (findWithDefault jbot tv bounds)))
   else
-    jbot -- XXX: should have already been removed
+    undefined -- XXX: should have already been removed
 substBase bounds isConf (VarEye tv) = J [M [VarEye tv]]
 
 jbot = J [M [B]]

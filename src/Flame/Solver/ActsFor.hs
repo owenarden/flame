@@ -110,7 +110,7 @@ actsForB flrec isConf _p _q
   | q == bot = Just AFBot
   | p == q  = Just AFRefl
   | otherwise = 
-    case find (== p) (superiors $ q) of
+    case find (== p) (superiors q) of
       Just del -> Just $ AFDel (_p,_q) -- TODO: encode bounds in proof
       _ -> Nothing
   where

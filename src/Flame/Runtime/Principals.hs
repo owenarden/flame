@@ -12,23 +12,24 @@ module Flame.Runtime.Principals
 where
 
 import Data.Data
-import Control.Arrow       ((***))
-import Data.Maybe          (mapMaybe)
+import Control.Arrow  ((***))
+import Data.Maybe     (mapMaybe)
 import Data.Graph 
 import Data.List
 import Data.Either
 import Data.Data
+import Data.Text      (Text)
 
 -- | The principal data type 
 data Prin =
   Top
   | Bot
-  | Name String
+  | Name Text
   | Conj  Prin Prin 
   | Disj  Prin Prin
   | Conf  Prin
   | Integ Prin
-  deriving (Read, Eq, Show, Data, Typeable)
+  deriving (Ord, Read, Eq, Show, Data, Typeable)
 
 public        = Conf Bot
 trusted       = Integ Top
@@ -181,7 +182,7 @@ normalize p = reify $ normPrin p
 -- | Base principals for FLAM Join Normal Form
 -- Each Base principal is a primitive principal.
 data Base =
-  P String -- ^ Primitive principal
+  P Text -- ^ Primitive principal
   | B   -- ^ Bottom
   | T   -- ^ Top
   deriving (Eq, Show, Ord)

@@ -3,6 +3,8 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE PolyKinds, GADTs #-}
+
 module Flame.Runtime.Prelude
   ( 
     module Prelude
@@ -11,6 +13,7 @@ module Flame.Runtime.Prelude
   , module Flame.Runtime.Principals
   , module Flame.Runtime.IO
   , return, (>>=), (>>), ifThenElse
+  , Ex(..)
   )
  where
 
@@ -29,10 +32,8 @@ ifThenElse False _ f = f
 return :: IFC m e n => a -> m e n pc l a
 return = protect
 
-(>>=) :: (IFC m e n, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
-         => m e n pc l a
-         -> (a -> m e n pc' l' b)
-         -> m e n pc'' l' b
+(>>=) :: (IFC m e n, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'') =>
+         m e n pc l a -> (a -> m e n pc' l' b) -> m e n pc'' l' b
 (>>=) = use
 
 (>>) :: (IFC m e n, pc ⊑ pc', pc ⊑ pc'')

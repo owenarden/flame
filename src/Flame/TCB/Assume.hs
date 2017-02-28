@@ -78,3 +78,12 @@ type (:<:) p q = Def Pi (AFType (C q ∧ I p) (C p ∧ I q))
 (<:) = (⊑)
 
 infix 5 ≽,=>=,⊑,<:
+
+data a :===: b where
+  Refl :: (a ≽ b, b ≽ a) => a :===: b
+
+eq :: DPrin p -> DPrin q -> Maybe (p :===: q)
+eq p q | (dyn p) == (dyn q) =
+  unsafeAssume ((st p) ≽ (st q)) $
+    unsafeAssume ((st q) ≽ (st p)) $ Just Refl
+eq p q = Nothing

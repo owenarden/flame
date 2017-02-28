@@ -16,8 +16,8 @@ module Flame.Principals
        , SPrin (..)
        , C, I, type (^->), type (^→), type (^<-), type (^←)
        , N, Public, Secret, Trusted, Untrusted, PT, SU 
-       , DPrin (st, dyn) 
-       , withPrin
+       , DPrin (st, dyn), Ex(..) 
+       , withPrin, promote
        , type (/\), type (∧), type (\/), type (∨) 
        , type (⊔), type (⊓)
        , type (≽), type (>=), type (⊑), type (<:), type (===)
@@ -35,6 +35,7 @@ import GHC.TypeLits
 import Data.Proxy (Proxy(..))
 import Data.Type.Bool
 import Data.Data
+import Data.Text  (pack, unpack)
 
 import Flame.Runtime.Principals
 
@@ -64,6 +65,7 @@ data SPrin :: KPrin -> * where
 
 deriving instance Show (SPrin p)
 deriving instance Eq (SPrin p)
+
 
 {- Some notation help -}
 type C p      = KConf p
@@ -141,26 +143,30 @@ data Ex (p :: k -> *) where
   Ex :: p i -> Ex p
 
 {- Promote runtime principals to existentially-wrapped principal types -}
-promote :: Prin -> Ex SPrin
-promote p =
+promoteS :: Prin -> Ex SPrin
+promoteS p =
   case p of
     Top         ->  Ex STop
     Bot         ->  Ex SBot
-    (Name str)  ->  case someSymbolVal str of
+    (Name str)  ->  case someSymbolVal (unpack str) of
                       SomeSymbol n -> Ex (SName n)
-    (Conj p q)  ->  case promote p of
-                      Ex p' -> case promote q of
+    (Conj p q)  ->  case promoteS p of
+                      Ex p' -> case promoteS q of
                                  Ex q' -> Ex (SConj p' q')
-    (Disj p q)  ->  case promote p of
-                      Ex p' -> case promote q of
+    (Disj p q)  ->  case promoteS p of
+                      Ex p' -> case promoteS q of
                                  Ex q' -> Ex (SDisj p' q')
-    (Conf p)    ->  case promote p of Ex p' -> Ex (SConf p')
-    (Integ p)   ->  case promote p of Ex p' -> Ex (SInteg p')
+    (Conf p)    ->  case promoteS p of Ex p' -> Ex (SConf p')
+    (Integ p)   ->  case promoteS p of Ex p' -> Ex (SInteg p')
 
 {- Bind runtime principal to type -}
 withPrin :: Prin -> (forall p . DPrin p -> a) -> a
 withPrin p f = case promote p of
-                 Ex p' -> f (p <=> p') 
+                 Ex p' -> f p'
+
+promote :: Prin -> Ex DPrin
+promote p = case promoteS p of
+              Ex p' -> Ex (p <=> p')
 
 -- do not export <=> or UnsafeBindP. This ensures only withPrin can associate
 --  runtime principals wth singleton principal types.
@@ -219,5 +225,4 @@ type (>=) (p :: KPrin) (q :: KPrin) = (p ≽ q)
 {- Exported type operators for flowsto -}
 type (⊑) (p :: KPrin) (q :: KPrin) = (C q ≽ C p , I p ≽ I q) 
 type (<:) (p :: KPrin) (q :: KPrin) = (p ⊑ q)
--- This doesn't work somehow..
 type (===) (p :: KPrin) (q :: KPrin) = (p ≽ q, q ≽ p)

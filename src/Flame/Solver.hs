@@ -67,7 +67,6 @@ import Flame.Solver.Unify
 import Flame.Solver.Norm
 import Flame.Solver.ActsFor
 
-
 plugin :: Plugin
 plugin = defaultPlugin { tcPlugin = const $ Just flamePlugin }
 
@@ -238,7 +237,7 @@ solvePrins flrec givens afcts =
       in case actsForJ flrec isConf p' q' of
         Just pf -> Win
         Nothing -> 
-          case uniqSetToList $ fvJNorm p of 
+          case uniqSetToList $ fvJNorm p of
             [] -> Lose (lookupCT (fst af), snd af)
             [var] -> case joinWith q (findWithDefault jbot var bounds) of
                        Just bnd -> ChangeBounds [(var, bnd)]
@@ -251,11 +250,13 @@ solvePrins flrec givens afcts =
                                         let new_flrec = updateBounds flrec isConf [(v, bnd)]
                                         in case search new_flrec isConf solved (af:iafs) [] of
                                              -- couldn't solve, try next vars
-                                             Lose af -> tryvar vs' 
+                                             Lose af -> pprTrace "lose3: " (ppr af) $ tryvar vs' 
                                              -- solved with this change, return it
-                                             Win -> ChangeBounds [(v, bnd)] 
+                                             Win -> pprTrace "change: " (ppr (v, bnd)) $
+                                                    ChangeBounds [(v, bnd)] 
                                              -- solved with this and other changes, return them
-                                             ChangeBounds changes -> ChangeBounds ((v, bnd):changes)
+                                             ChangeBounds changes -> pprTrace "change: " (ppr (v, bnd)) $
+                                                                     ChangeBounds ((v, bnd):changes)
                                       Nothing -> tryvar vs'
                     in tryvar vars
     joinWith q bnd = let new_bnd = mergeJNormJoin bnd q
