@@ -31,7 +31,6 @@ library
                     Flame.Runtime.Sealed,
                     Flame.Runtime.IFCRef, 
                     Flame.Runtime.STM, 
-                    Flame.Runtime.Warp, 
                     Flame.Runtime.Time,
                     Flame.Runtime.Prelude
 

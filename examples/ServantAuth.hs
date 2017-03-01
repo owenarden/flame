@@ -73,7 +73,6 @@ import Flame.Runtime.Time as T
 import Control.Concurrent.STM
 import Flame.Runtime.STM as F
 import qualified Flame.Runtime.Prelude as F hiding (id)
---import Flame.Runtime.Warp as F (run)
 import Flame.Runtime.Sealed
 import Data.String
 
