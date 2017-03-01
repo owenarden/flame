@@ -168,7 +168,7 @@ type MemoAPI =
 memoAPI :: Proxy MemoAPI
 memoAPI = Proxy
 
-type MemoStore = FLAC IO (I AppServer) (I AppServer) MemoDB
+type MemoStore = Lbl (I AppServer) MemoDB
 type MemoDB = IFCTVar (I AppServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
 
 -- TODO: A SealedMap that enforces the envariant that mapped values are sealed by their keys?
@@ -188,12 +188,11 @@ main = do
         _     -> putStrLn "unknown option"
 
 runApp :: IO ()
-runApp = 
-  run 8080 $ app store
-  where
-    store :: MemoStore
-    store = use initialMemoStore $ \store -> newIFCTVarIO store
+runApp = do 
+  init <- runFLAC $ use initialMemoStore $ \store -> newIFCTVarIO store
+  run 8080 $ app init
 
+  where
     newMemoDB :: DPrin p
               -> FLAC IO (I AppServer) (I AppServer)
                   (IFCTVar p (Int, M.Map Int Memo))
@@ -241,7 +240,7 @@ server s = getMemosH :<|> postMemoH :<|> deleteMemoH
                    -> FLAC STM (I client) client a)
               -> Handler (Lbl Client a)
     mkHandler p f = liftIO $ runFLAC @IO @Lbl @(I Client ∧ I AppServer) @Client $
-                     use (reprotect s) $ \db -> 
+                     ebind (relabel s) $ \db -> 
                      use (reprotect p) $ \sessionPrin -> F.atomically $
                       withPrin @(FLAC STM (I Client ∧ I AppServer) Client a) sessionPrin $
                        \(sessionDPrin :: DPrin session) -> let session = (st sessionDPrin) in
@@ -261,10 +260,11 @@ server s = getMemosH :<|> postMemoH :<|> deleteMemoH
                                   -> FLAC STM (I client) client b)
                  -> FLAC STM (I client) client b
     withMemoDB client db f =
-      use (readIFCTVar db) $ \db' -> fromJust $ do -- TODO: handle Nothing case!
+      use (readIFCTVar db) $ \db' -> 
+      fromJust $ do -- TODO: handle Nothing case!
        entry <- M.lookup (dyn client) db'
        unsealTypeWith @client @IFCTVar @(Int, Map Int Memo) @(FLAC STM (I client) client b)
-         client entry f
+               client entry f
 
 getMemos :: (Client === client, client === l) =>
             DPrin client
@@ -281,8 +281,11 @@ postMemo :: (Client === client, client === l) =>
          -> FLAC STM (I client) client Memo
 postMemo req client db =
    use (readIFCTVar db) $ \(c, sm) ->
-     let m = Memo (c + 1) (memo req) in
-       apply (writeIFCTVar db $ (id m, M.insert (id m) m sm)) $ \_ ->
+     let m = Memo (c + 1) (memo req) 
+         entry = (id m, M.insert (id m) m sm)
+     in
+       apply (writeIFCTVar db entry) $ \m' ->
+       use (readIFCTVar db) $ \(c', sm') ->
        protect m
 
 deleteMemo :: (Client === client, client === l) =>
