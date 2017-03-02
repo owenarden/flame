@@ -27,7 +27,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON(..), ToJSON(..))
 import qualified Data.Map as M
 import Data.Text (Text)
-import Data.Time (LocalTime(..), TimeZone(..), ZonedTime(..), hoursToTimeZone, midday, fromGregorian, utcToZonedTime, getCurrentTime, getCurrentTimeZone)
+import Data.Time (LocalTime(..), TimeZone(..), ZonedTime(..), hoursToTimeZone, midday, fromGregorian, utcToZonedTime, getCurrentTimeZone)
 import GHC.Generics (Generic)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
@@ -70,7 +70,7 @@ import Flame.IFC
 import Flame.TCB.IFC (Lbl(..))
 import Flame.Principals
 import Flame.Runtime.Time as T
-import Control.Concurrent.STM
+import Control.Concurrent.STM hiding (atomically)
 import Flame.Runtime.STM as F
 import qualified Flame.Runtime.Prelude as F hiding (id)
 import Flame.Runtime.Sealed
@@ -143,7 +143,7 @@ type instance AuthServerData (AuthProtect "cookie-auth") = FLAC IO (I AppServer)
 data Memo = Memo
     { id :: Int
     , text :: Text
-    --, createdAt :: UTCTime
+    , createdAt :: UTCTime
     }
     deriving (Show, Generic)
 
@@ -235,65 +235,67 @@ server s = getMemosH :<|> postMemoH :<|> deleteMemoH
     mkHandler :: forall a. FLAC IO (I AppServer) (I AppServer) Prin
               -> (forall client l. (Client === client, client === l) =>
                       DPrin client
-                   -> IFCTVar l (Int, (M.Map Int Memo))
-                   -> FLAC STM (I client) client a)
+                   -> MemoDB
+                   -> FLAC IO (I client) client a)
               -> Handler (Lbl Client a)
     mkHandler p f = liftIO $ runFLAC @IO @Lbl @(I Client ∧ I AppServer) @Client $
                      ebind (relabel s) $ \db -> 
-                     use (reprotect p) $ \sessionPrin -> F.atomically $
-                      withPrin @(FLAC STM (I Client ∧ I AppServer) Client a) sessionPrin $
+                     use (reprotect p) $ \sessionPrin ->
+                      withPrin @(FLAC IO (I Client ∧ I AppServer) Client a) sessionPrin $
                        \(sessionDPrin :: DPrin session) -> let session = (st sessionDPrin) in
                         assume2 ((currentClient*←) ≽ (appServer*←)) $
                          assume2 (currentClient ≽ session) $
                           assume2 (session ≽ currentClient) $
-                           reprotect $ -- from client to Client
-                             withMemoDB sessionDPrin db $ \(lDPrin :: DPrin l) db' ->
-                               f sessionDPrin db'
+                           reprotect $ f sessionDPrin db -- from client to Client
 
-    withMemoDB :: forall client b .
-                 DPrin client
-                 -> MemoDB
-                 -> (forall client'. (client === client') =>
-                                     DPrin client'
-                                  -> IFCTVar client' (Int, (M.Map Int Memo))
-                                  -> FLAC STM (I client) client b)
-                 -> FLAC STM (I client) client b
-    withMemoDB client db f =
-      use (readIFCTVar db) $ \db' -> 
-      fromJust $ do -- TODO: handle Nothing case!
-       entry <- M.lookup (dyn client) db'
-       unsealTypeWith @client @IFCTVar @(Int, Map Int Memo) @(FLAC STM (I client) client b)
-               client entry f
+withMemoDB :: forall client b .
+             DPrin client
+             -> MemoDB
+             -> (forall client'. (client === client') =>
+                                 DPrin client'
+                              -> IFCTVar client' (Int, (M.Map Int Memo))
+                              -> FLAC STM (I client) client b)
+             -> FLAC STM (I client) client b
+withMemoDB client db f =
+  use (readIFCTVar db) $ \db' -> 
+  fromJust $ do -- TODO: handle Nothing case!
+   entry <- M.lookup (dyn client) db'
+   unsealTypeWith @client @IFCTVar @(Int, Map Int Memo) @(FLAC STM (I client) client b)
+           client entry f
 
 getMemos :: (Client === client, client === l) =>
             DPrin client
-         -> IFCTVar l (Int, (M.Map Int Memo))
-         -> FLAC STM (I client) client [Memo]
-getMemos client db = 
-    use (readIFCTVar db) $ \(_, m) ->
+         -> MemoDB
+         -> FLAC IO (I client) client [Memo]
+getMemos client db = atomically $
+    withMemoDB client db $ \(client':: DPrin l) db' ->
+    use (readIFCTVar db') $ \(_, m) ->
     protect $ M.elems m
 
 postMemo :: (Client === client, client === l) =>
             ReqMemo
          -> DPrin client
-         -> IFCTVar l (Int, (M.Map Int Memo))
-         -> FLAC STM (I client) client Memo
+         -> MemoDB
+         -> FLAC IO (I client) client Memo
 postMemo req client db =
-   use (readIFCTVar db) $ \(c, sm) ->
-     let m = Memo (c + 1) (memo req) 
+   use getCurrentTime $ \time -> atomically $
+   withMemoDB client db $ \(client':: DPrin l) db' ->
+   use (readIFCTVar db') $ \(c, sm) ->
+     let m = Memo (c + 1) (memo req) time
          entry = (id m, M.insert (id m) m sm)
      in
-       apply (writeIFCTVar db entry) $ \m' ->
-       use (readIFCTVar db) $ \(c', sm') ->
+       apply (writeIFCTVar db' entry) $ \m' ->
+       use (readIFCTVar db') $ \(c', sm') ->
        protect m
 
 deleteMemo :: (Client === client, client === l) =>
               Int
            -> DPrin client
-           -> IFCTVar l (Int, (M.Map Int Memo))
-           -> FLAC STM (I client) client ()
-deleteMemo i client db = 
-  modifyIFCTVar db $ \(c, sm) ->
+           -> MemoDB
+           -> FLAC IO (I client) client ()
+deleteMemo i client db = atomically $
+  withMemoDB client db $ \(client':: DPrin l) db' ->
+  modifyIFCTVar db' $ \(c, sm) ->
   (c, M.delete i sm)
 
 -- NOTE: ↓ for documentation
@@ -322,7 +324,7 @@ sampleMemo :: Memo
 sampleMemo = Memo
     { id = 5
     , text = "Try haskell-servant."
-    --, createdAt = UTCTime (fromGregorian 2014 12 31) (secondsToDiffTime 0)
+    , createdAt = UTCTime (fromGregorian 2014 12 31) (secondsToDiffTime 0)
     }
 
 instance (ToAuthInfo (AuthProtect "cookie-auth"), HasDocs api) => HasDocs (AuthProtect "cookie-auth" :> api) where
