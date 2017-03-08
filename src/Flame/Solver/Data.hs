@@ -11,6 +11,7 @@ import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace,
 import Type       (Type,TyVar,cmpType)
 import TcRnTypes  (Ct)
 import TcEvidence (EvTerm (..))
+import TcType     (TcLevel)
 
 #if __GLASGOW_HASKELL__ >= 711
 import Type       (eqType)
@@ -94,7 +95,6 @@ type Bounds v s = Map v (JNorm v s)
 type CoreBounds = Bounds TyVar Type
 
 data FlameRec = FlameRec {
-   --discharged   :: IORef [Ct],
    kprin        :: TyCon, 
    ktop         :: TyCon, 
    kbot         :: TyCon, 
@@ -109,7 +109,8 @@ data FlameRec = FlameRec {
    confClosure  :: CoreDelClosure,
    integClosure :: CoreDelClosure,
    confBounds   :: CoreBounds,
-   integBounds  :: CoreBounds
+   integBounds  :: CoreBounds,
+   tclevel      :: TcLevel
  }
 
 getBounds flrec isConf =

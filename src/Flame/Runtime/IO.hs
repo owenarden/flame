@@ -2,7 +2,10 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.IO
@@ -12,6 +15,7 @@ where
 import Flame.Principals
 import Flame.TCB.IFC 
 import qualified System.IO as SIO
+import qualified Control.Monad.IO.Class as MIO
 
 data IFCHandle (l::KPrin) = NewHdl { unsafeUnwrap :: SIO.Handle }
 
@@ -56,3 +60,9 @@ hGetLine :: IFC m IO n => IFCHandle l -> m IO n pc l String
 hGetLine h = unsafeProtect $ do
   s <- SIO.hGetLine (unsafeUnwrap h)
   return $ label s
+
+class (IFC m e n, IFC m IO n) => IFCIO m e n where
+  liftIO :: m IO n pc l a -> m e n pc l a
+
+instance (MIO.MonadIO e, IFC m e n, IFC m IO n) => IFCIO m e n where
+  liftIO a = unsafeProtect $ MIO.liftIO $ runIFC a

@@ -126,5 +126,5 @@ actsForB flrec isConf _p _q
     delClosure = if isConf then confClosure flrec else integClosure flrec
     superiors :: CoreJNorm -> [CoreJNorm]
     superiors q = case find ((== q) . fst) delClosure of
-                    Just (q, sups) -> map (substJNorm bounds isConf) sups
+                    Just (q, sups) -> map (substJNorm (tclevel flrec) bounds isConf) sups
                     _ -> []

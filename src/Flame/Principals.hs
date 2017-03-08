@@ -27,6 +27,7 @@ module Flame.Principals
        , (^->), (^→), (^<-), (^←)
        , (/\), (∧), (\/), (∨), (⊔), (⊓)
        , (*->), (*→), (*<-), (*←), (*/\), (*∧), (*\/), (*∨), (*⊔), (*⊓), (*∇)  
+       , (<=>) -- XXX TODO: should not export to non-TCB code.
        )
 where
 

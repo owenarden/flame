@@ -70,6 +70,6 @@ fvBase :: CoreBase -> UniqSet TyVar
 fvBase (P _) = emptyUniqSet
 fvBase B     = emptyUniqSet
 fvBase T     = emptyUniqSet
-fvBase (V v)        = if isSkolemTyVar v then emptyUniqSet else unitUniqSet v
-fvBase (VarVoice v) = if isSkolemTyVar v then emptyUniqSet else unitUniqSet v
-fvBase (VarEye v)   = if isSkolemTyVar v then emptyUniqSet else unitUniqSet v
+fvBase (V v)        = unitUniqSet v
+fvBase (VarVoice v) = unitUniqSet v
+fvBase (VarEye v)   = unitUniqSet v

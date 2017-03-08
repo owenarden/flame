@@ -10,7 +10,7 @@
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.IFC
-       (FLA(..), IFC(..), FLAC, FLACT, NMIF(..), NM
+       (FLA(..), IFC(..), FLAC, FLACT, NMIF(..), NM, NMT
        , Labeled(..), Lbl, runFLAC, runNM 
        , (:≽), (:=>=), (:⊑), (:<:)  -- Delegation types
        , Def(..), (≽), (=>=), (⊑), (<:)     -- Delegation constructors

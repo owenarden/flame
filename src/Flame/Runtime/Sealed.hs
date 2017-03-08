@@ -35,7 +35,7 @@ unsealWith :: Labeled n => DPrin l -> Sealed n a -> (n l a -> b) -> Maybe b
 unsealWith l s f =
   case s of
     Seal l' lv -> case l `eq` l' of
-                    Just Refl -> Just $ f (relabel lv)
+                    Just Equiv -> Just $ f (relabel lv)
                     _ -> Nothing
 
 data SealedIFC m e n a where
@@ -61,9 +61,9 @@ unsealIFCWith pc l s f =
   case s of
     SealIFC pc' l' lv ->
       case l `eq` l' of
-        Just Refl ->
+        Just Equiv ->
           case pc `eq` pc' of
-            Just Refl -> Just $ f (reprotect lv)
+            Just Equiv -> Just $ f (reprotect lv)
             _ -> Nothing
         _ -> Nothing
 
@@ -84,5 +84,5 @@ unsealTypeWith :: DPrin l
 unsealTypeWith l s f =
   case s of
     SealType l' lv -> case l `eq` l' of
-                        Just Refl -> Just $ f l' lv 
+                        Just Equiv -> Just $ f l' lv 
                         _ -> Nothing

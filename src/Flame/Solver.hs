@@ -37,15 +37,16 @@ import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
 import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList, mapWithKey, keysSet, elems, lookup, singleton)
 -- GHC API
 import UniqSet             (uniqSetToList, unionUniqSets)
-import TcType              (isSkolemTyVar)
+import TcType              (TcLevel, isTouchableMetaTyVar)
 
 import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
 import Plugins    (Plugin (..), defaultPlugin)
 import TcEvidence (EvTerm (..))
 import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt, tcLookupTyCon, tcLookupDataCon,
                    tcPluginIO)
+import TcRnMonad  (getTcLevel)
 import TcRnTypes  (Ct, TcPlugin (..), TcPluginResult(..), ctEvidence, ctEvPred,
-                   isWanted, mkNonCanonical)
+                   isWanted, mkNonCanonical, unsafeTcPluginTcM)
 import Type       (EqRel (NomEq), Kind, PredTree (EqPred, IrredPred, ClassPred), PredType,
                    classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass, typeKind, mkTyConApp, TyVar)
 import Coercion   (CoercionHole, Role (..), mkForAllCos, mkHoleCo, mkInstCo,
@@ -102,6 +103,7 @@ lookupFlameRec = do
     kintegData <- promoteDataCon <$> tcLookupDataCon kintegDataNm
     kvoiceData <- promoteDataCon <$> tcLookupDataCon kvoiceDataNm
     keyeData   <- promoteDataCon <$> tcLookupDataCon keyeDataNm
+    level    <- unsafeTcPluginTcM getTcLevel
     return FlameRec{
        kprin      = kprinTc
     ,  actsfor    = actsforTc
@@ -118,6 +120,7 @@ lookupFlameRec = do
     ,  integBounds  = empty
     ,  confClosure  = []
     ,  integClosure = []
+    ,  tclevel      = level
     }
   where
     flameModule  = mkModuleName "Flame.Principals"
@@ -145,7 +148,7 @@ decideActsFor flrec givens  _deriveds wanteds = do
             return (TcPluginOk solved newWanteds)
           Impossible eq -> do
              --return (TcPluginContradiction [fromActsFor eq])
-             return (TcPluginOk [] [])
+             pprTrace "impossible: " (ppr eq) $ return (TcPluginOk [] [])
 
 solvePrins :: FlameRec
              -> [ActsForCt]
@@ -157,13 +160,17 @@ solvePrins flrec givens afcts =
     let (conf_givens_flat, integ_givens_flat) = flattenDelegations (map snd givens)
         conf_closure =  computeDelClosure conf_givens_flat
         integ_closure = computeDelClosure integ_givens_flat
-        flrec' = flrec{confClosure = conf_closure, integClosure = integ_closure,
-                       confBounds = bottomVarMap, integBounds = bottomVarMap}
-    in tcPluginTrace "solvePrins" (ppr afcts) >> solve flrec' indexedAFs
+    in do
+     tcPluginTrace "solvePrins" (ppr afcts)
+     level <- unsafeTcPluginTcM getTcLevel
+     solve flrec{tclevel = level,
+                 confClosure = conf_closure, integClosure = integ_closure,
+                 confBounds = initVarMap level, integBounds = initVarMap level}
+           indexedAFs
   where
     allVars = concat [uniqSetToList $ fvNorm p `unionUniqSets` fvNorm q | (ct, (p, q)) <- afcts]
-    bottomVarMap :: Map TyVar CoreJNorm
-    bottomVarMap = fromList $ map (\v -> (v, J [M [B]])) $ [v | v <- allVars, not (isSkolemTyVar v)]
+    initVarMap :: TcLevel -> Map TyVar CoreJNorm
+    initVarMap level = fromList $ map (\v -> (v, J [M [B]])) $ [v | v <- allVars, isTouchableMetaTyVar level v]
     indexedAFCTs = zip [0..length afcts] afcts
     indexedAFs = map (\(i, (ct, af)) -> (i, af)) $ indexedAFCTs
     lookupCT i = fst $ afcts !! i
@@ -231,8 +238,8 @@ solvePrins flrec givens afcts =
       let p      = if isConf then cp else ip
           q      = if isConf then cq else iq
           bounds = getBounds flrec isConf
-          p' = substJNorm bounds isConf p
-          q' = substJNorm bounds isConf q
+          p' = substJNorm (tclevel flrec) bounds isConf p
+          q' = substJNorm (tclevel flrec) bounds isConf q
       -- XXX: l bounded with a \/ b doesn't act for a \/ b
       in case actsForJ flrec isConf p' q' of
         Just pf -> Win
@@ -250,13 +257,11 @@ solvePrins flrec givens afcts =
                                         let new_flrec = updateBounds flrec isConf [(v, bnd)]
                                         in case search new_flrec isConf solved (af:iafs) [] of
                                              -- couldn't solve, try next vars
-                                             Lose af -> pprTrace "lose3: " (ppr af) $ tryvar vs' 
+                                             Lose af -> tryvar vs' 
                                              -- solved with this change, return it
-                                             Win -> pprTrace "change: " (ppr (v, bnd)) $
-                                                    ChangeBounds [(v, bnd)] 
+                                             Win -> ChangeBounds [(v, bnd)] 
                                              -- solved with this and other changes, return them
-                                             ChangeBounds changes -> pprTrace "change: " (ppr (v, bnd)) $
-                                                                     ChangeBounds ((v, bnd):changes)
+                                             ChangeBounds changes -> ChangeBounds ((v, bnd):changes)
                                       Nothing -> tryvar vs'
                     in tryvar vars
     joinWith q bnd = let new_bnd = mergeJNormJoin bnd q
@@ -370,3 +375,4 @@ mkNewAFFact :: FlameRec -> CtLoc -> (Type,Type) -> TcPluginM CtEvidence
 mkNewAFFact flrec newLoc (t1,t2) = newGiven newLoc newPred (evByFiat "flame" t1 t2)
   where
   newPred = mkTyConApp (actsfor flrec) [t1, t2]
+

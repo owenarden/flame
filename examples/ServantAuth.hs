@@ -23,22 +23,29 @@ module ServantAuth where
 
 import Prelude hiding (id)
 
-import Control.Monad.IO.Class (liftIO)
+import GHC.TypeLits (KnownNat, KnownSymbol, natVal, symbolVal)
+import Network.HTTP.Types.Status
+import Network.HTTP.Types.Method
+import Network.HTTP.Types.Header
+
+import qualified Control.Monad.IO.Class as XXX (liftIO) 
 import Data.Aeson (FromJSON(..), ToJSON(..))
 import qualified Data.Map as M
 import Data.Text (Text)
 import Data.Time (LocalTime(..), TimeZone(..), ZonedTime(..), hoursToTimeZone, midday, fromGregorian, utcToZonedTime, getCurrentTimeZone)
 import GHC.Generics (Generic)
-import Network.Wai (Application)
+import Network.Wai (Application, Response)
 import Network.Wai.Handler.Warp (run)
 import System.IO as SIO
-import Servant ((:>), (:<|>)(..), ReqBody, Capture, Get, Post, Delete, Proxy(..), Server, serve)
+import Servant ((:>), (:<|>)(..), ReqBody, Capture, Get, Post, Delete, Proxy(..), Server, serve, ServantErr, HasServer(..), reflectMethod, ReflectMethod(..))
+import           Servant.API.ContentTypes
 import Servant.Docs (docs, ToCapture(..), DocCapture(..), ToSample(..), markdown, singleSample, HasDocs(..))
-import Servant.Docs.Internal -- (ToAuthInfo(..), authInfo)
+import Servant.Docs.Internal (ToAuthInfo(..), authInfo, DocAuthentication(..))
+import Servant.Server.Internal
 import Control.Lens ((|>), over)
 import System.Environment (getArgs)
 
-import Data.Maybe  (fromJust)
+import Data.Maybe  (fromJust, fromMaybe)
 import Data.Aeson                       (ToJSON)
 import Data.ByteString                  (ByteString)
 import Data.Map                         (Map, fromList)
@@ -49,7 +56,7 @@ import Data.Text                        (Text, pack)
 import GHC.Generics                     (Generic)
 import Network.Wai                      (Request, requestHeaders)
 import Servant.API                      ((:<|>) ((:<|>)), (:>), BasicAuth,
-                                          Get, JSON)
+                                          Get, JSON, Verb(..))
 import Servant.API.BasicAuth            (BasicAuthData (BasicAuthData))
 import Servant.API.Experimental.Auth    (AuthProtect)
 import Servant                          (throwError)
@@ -64,37 +71,35 @@ import Servant.Server                   (BasicAuthCheck (BasicAuthCheck),
 import Servant.Server.Experimental.Auth (AuthHandler, AuthServerData,
                                          mkAuthHandler)
 import Servant.Server.Experimental.Auth()
+import Control.Monad.Trans.Resource     (MonadResource (..), ResourceT, runResourceT)
+
+
+import Flame.Runtime.Servant.Auth
 
 import Flame.Runtime.Principals
 import Flame.IFC
-import Flame.TCB.IFC (Lbl(..))
 import Flame.Principals
 import Flame.Runtime.Time as T
 import Control.Concurrent.STM hiding (atomically)
 import Flame.Runtime.STM as F
 import qualified Flame.Runtime.Prelude as F hiding (id)
 import Flame.Runtime.Sealed
+import Flame.Runtime.IO
 import Data.String
+import System.IO.Unsafe
+import Control.Monad.Trans.Either (EitherT)
 
-{- common defs -}
-type Client = KName "Client"
-currentClient :: SPrin Client
-currentClient = SName (Proxy :: Proxy "Client")
+import Flame.TCB.Assume
+import Flame.TCB.IFC (Lbl(..))
 
-type AppServer = KTop
-appServer :: SPrin KTop
-appServer = STop
-
-instance ToJSON Prin
-deriving instance Generic Prin
+--instance ToJSON Prin
+--deriving instance Generic Prin
 
 -- These instances require TCB access
-instance ToJSON a => ToJSON (Lbl Client a) where
-  toJSON la = toJSON (unsafeRunLbl la)
+--instance ToJSON a => ToJSON (FLAC IO (I Client) Client a) where
+--  toJSON la = toJSON $ unsafeUnlabel $ unsafePerformIO (runFLAC la)
 
-deriving instance Generic (Lbl Client a)
-
-type SealedHandler e a = SealedIFC FLACT e Lbl a
+--deriving instance Generic (Lbl Client a)
 
 {- Auth specific -}
 type Alice = KName "Alice"
@@ -106,22 +111,20 @@ bob = Name "Bob"
 type Carol = KName "Carol"
 carol = Name "Carol"
 
--- | A user type that we "fetch from the database" after
--- performing authentication
--- newtype Prin = Prin { unPrin :: Text}
-
 -- | A database mapping keys to users.
 prin_database :: FLAC IO (I AppServer) AppServer (Map ByteString Prin)
 prin_database = protect $ fromList [ ("key1", alice)
                                    , ("key2", bob)
                                    , ("key3", carol)
                                    ]
+authit :: Prin -> (forall client. DPrin client -> Maybe (s :≽: (client ∧ (∇) client), c :===: client))
+authit = undefined
                                  
 -- | A method that, when given a password, will return a Prin.
 -- This is our bespoke (and bad) authentication logic.
 lookupPrin :: ByteString -> Handler (FLAC IO (I AppServer) (I AppServer) Prin)
 lookupPrin key = return $
-    assume2 (SConf SBot ≽ SConf appServer) $
+    assume2 (SConf SBot ≽ SConf (st $ appServer memoAPI)) $
       use prin_database $ \database ->
       case Map.lookup key database of
         Nothing ->  protect $ undefined --throwError (err403 { errBody = "Invalid Cookie" })
@@ -156,21 +159,19 @@ instance ToJSON ReqMemo
 
 type MemoAPI =
          "memos" :> AuthProtect "cookie-auth"
-          :> Get  '[JSON] (Lbl Client [Memo])
+          :> EnforceFLA (I Client) (Client) (Get '[JSON] [Memo]) 
     :<|> "memos" :> AuthProtect "cookie-auth"
           :> ReqBody '[JSON] ReqMemo
-          :> Post '[JSON] (Lbl Client Memo) 
+          :> EnforceFLA (I Client) (Client) (Post '[JSON] Memo) 
     :<|> "memos" :> AuthProtect "cookie-auth"
          :> Capture "id" Int
-         :>  Delete '[JSON] (Lbl Client ())
+         :>  EnforceFLA (I Client) (Client) (Delete '[JSON] ())
 
 memoAPI :: Proxy MemoAPI
 memoAPI = Proxy
 
 type MemoStore = Lbl (I AppServer) MemoDB
 type MemoDB = IFCTVar (I AppServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
-
--- TODO: A SealedMap that enforces the envariant that mapped values are sealed by their keys?
 
 -- | The context that will be made available to request handlers. We supply the
 -- "cookie-auth"-tagged request handler defined above, so that the 'HasServer' instance
@@ -182,7 +183,7 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ["d"] -> putStrLn doc
+        --["d"] -> putStrLn doc
         ["s"] -> runApp
         _     -> putStrLn "unknown option"
 
@@ -212,42 +213,61 @@ runApp = do
 app :: MemoStore -> Application
 app s = serveWithContext memoAPI genAuthServerContext $ server s
 
-doc :: String
-doc = markdown $ docs memoAPI
+--doc :: String
+--doc = markdown $ docs memoAPI
+
+{- common defs -}
+type Client = KName "Client"
+-- currentClient :: SPrin Client
+-- currentClient = 
+
+type AppServer = KTop
+--appServer :: SPrin KTop
+--appServer = STop
+
+instance IFCApp AppServer Client MemoAPI where
+  appServerPrin = const $ Top
+  appServerTy   = const $ STop
+
+  currentClientPrin = const $ Name "Client"
+  currentClientTy   = const $ SName (Proxy :: Proxy "Client")
 
 server :: MemoStore -> Server MemoAPI
 server s = getMemosH :<|> postMemoH :<|> deleteMemoH
   where
+    auth :: forall client. DPrin client -> Maybe (AppServer :≽: (client ∧ (∇) client), Client :===: client)
+    auth = undefined
+
+    apiClient = currentClient memoAPI
+    apiAppServer = appServer memoAPI
+    mkSig client = (dyn (client^←), dyn client)
     deleteMemoH :: FLAC IO (I AppServer) (I AppServer) Prin
                  -> Int
-                 -> Handler (Lbl Client ())
-    deleteMemoH p i = mkHandler p $ deleteMemo i
+                 -> FLAC Handler (I Client) Client ()
+    deleteMemoH p i = mkHandler memoAPI p undefined mkSig (apiClient^←) apiClient $
+       \client pc' l' -> do
+          Equiv <- pc' `eq` (client^←)
+          Equiv <- l' `eq` client
+          (ActsFor, Equiv) <- auth client
+          return (Equiv, Equiv, reprotect $ ebind s $ \db -> deleteMemo client db i)
 
     getMemosH :: FLAC IO (I AppServer) (I AppServer) Prin
-              -> Handler (Lbl Client [Memo])
-    getMemosH p = mkHandler p getMemos
+              -> FLAC Handler (I Client) Client [Memo]
+    getMemosH p = mkHandler memoAPI p undefined undefined (apiClient^←) apiClient undefined
+    --getMemosH p = mkHandler p getMemos
 
     postMemoH :: FLAC IO (I AppServer) (I AppServer) Prin
               -> ReqMemo
-              -> Handler (Lbl Client Memo)
-    postMemoH p r = mkHandler p $ postMemo r
+              -> FLAC Handler (I Client) Client Memo
+    postMemoH p r = mkHandler memoAPI p undefined undefined (apiClient^←) apiClient undefined
+    --postMemoH p r = mkHandler p $ postMemo r
 
-    mkHandler :: forall a. FLAC IO (I AppServer) (I AppServer) Prin
-              -> (forall client l. (Client === client, client === l) =>
-                      DPrin client
-                   -> MemoDB
-                   -> FLAC IO (I client) client a)
-              -> Handler (Lbl Client a)
-    mkHandler p f = liftIO $ runFLAC @IO @Lbl @(I Client ∧ I AppServer) @Client $
-                     ebind (relabel s) $ \db -> 
-                     use (reprotect p) $ \sessionPrin ->
-                      withPrin @(FLAC IO (I Client ∧ I AppServer) Client a) sessionPrin $
-                       \(sessionDPrin :: DPrin session) -> let session = (st sessionDPrin) in
-                        assume2 ((currentClient*←) ≽ (appServer*←)) $
-                         assume2 (currentClient ≽ session) $
-                          assume2 (session ≽ currentClient) $
-                           reprotect $ f sessionDPrin db -- from client to Client
-
+deleteMemo :: DPrin client
+           -> MemoDB
+           -> Int
+           -> FLAC IO (I client) client ()
+deleteMemo client db i = undefined
+{- 
 withMemoDB :: forall client b .
              DPrin client
              -> MemoDB
@@ -297,7 +317,7 @@ deleteMemo i client db = atomically $
   withMemoDB client db $ \(client':: DPrin l) db' ->
   modifyIFCTVar db' $ \(c, sm) ->
   (c, M.delete i sm)
-
+-}
 -- NOTE: ↓ for documentation
 instance ToCapture (Capture "id" Int) where
     toCapture _ = DocCapture "id" "memo id"
@@ -311,14 +331,14 @@ instance ToSample [Memo] where
 instance ToSample ReqMemo where
     toSamples _ = singleSample $ ReqMemo "Try haskell-servant."
 
-instance ToSample (Lbl Client Memo) where
-    toSamples _ = singleSample $ label sampleMemo
+instance ToSample (FLAC IO (I Client) Client Memo) where
+    toSamples _ = singleSample $ protect sampleMemo
 
-instance ToSample (Lbl Client [Memo]) where
-    toSamples _ = singleSample $ label [sampleMemo]
+instance ToSample (FLAC IO (I Client) Client [Memo]) where
+    toSamples _ = singleSample $ protect [sampleMemo]
 
-instance ToSample (Lbl Client ()) where
-    toSamples _ = singleSample $ label ()
+instance ToSample (FLAC IO (I Client) Client ()) where
+    toSamples _ = singleSample $ protect ()
 
 sampleMemo :: Memo
 sampleMemo = Memo
