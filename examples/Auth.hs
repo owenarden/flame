@@ -17,10 +17,11 @@
 {-# LANGUAGE PostfixOperators         #-}
 {-# LANGUAGE ConstraintKinds          #-}
 {-# LANGUAGE FunctionalDependencies   #-}
+{-# LANGUAGE GADTs #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.Servant.Auth
-  (EnforceFLA, IFCApp(..))
+  (EnforceFLA, IFCAuth(..), IFCApp(..))
 where
 import Data.Constraint
 
@@ -49,6 +50,7 @@ import Servant
 
 newtype EnforceFLA (pc::KPrin) (l::KPrin) a = EnforceFLA a 
 newtype EnforceNM (pc::KPrin) (l::KPrin) a = EnforceNM a
+
 
 {-- XXX: why doesn't this more general instance work? -}
 instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status,
@@ -120,7 +122,14 @@ flacRunAction action env req respond k = runResourceT $ do
        Left err -> return . Route $ responseServantErr err
        Right x  -> return $! k (unsafeUnlabel x)
 
+data IFCAuth api where
+   IFCAuthorized :: IFCApp s c api =>
+                 DPrin client
+              -> (s :≽: (client ∧ (∇) client), c :===: client)
+              -> IFCAuth api
+
 class IFCApp s c api | api -> s c where
+
   appServerPrin     :: Proxy api -> Prin
   currentClientPrin :: Proxy api -> Prin
   appServerTy     :: Proxy api -> SPrin s
@@ -130,11 +139,10 @@ class IFCApp s c api | api -> s c where
   appServer api =  (appServerPrin api) <=> (appServerTy api)
   currentClient :: Proxy api -> DPrin c
   currentClient api =  (currentClientPrin api) <=> (currentClientTy api)
-  
+
   mkHandler :: forall pc l a. (s ≽ (C c ∧ I c ∧ (∇) c), (I c ∧ C s) ≽ pc, (C c ∧ I s) ≽ l) =>
             Proxy api
-            -> FLAC IO (I s) (I s) Prin
-            -> (forall client. DPrin client -> Maybe (s :≽: (client ∧ (∇) client), c :===: client))
+            -> IFCAuth api
             -> (forall client. DPrin client -> (Prin, Prin))
             -> DPrin pc
             -> DPrin l
@@ -148,17 +156,15 @@ class IFCApp s c api | api -> s c where
                            )
                      )
             -> FLAC Handler pc l a
-  mkHandler api p auth toPCL pc l f =
-    liftIO $ use p $ \authPrin ->
-     withPrin @(FLAC IO pc l a) authPrin $
-      \(client :: DPrin client) ->
-        case auth client of
-         Just (ActsFor, Equiv) -> let (pc'_, l'_) = toPCL client in
-          withPrin pc'_ $ \(pc' :: DPrin pc') -> 
-           withPrin l'_ $ \(l' :: DPrin l') -> 
-            case f pc' l' client of 
-              Just (Equiv, Equiv, h) -> reprotect h
-              _ -> error "could not make handler"
+  mkHandler api auth toPCL pc l f = 
+    liftIO $ case auth of
+      IFCAuthorized (client :: DPrin client) (ActsFor, Equiv) ->
+       let (pc'_, l'_) = toPCL client in
+         withPrin pc'_ $ \(pc' :: DPrin pc') -> 
+          withPrin l'_ $ \(l' :: DPrin l') -> 
+           case f pc' l' client of 
+             Just (Equiv, Equiv, h) -> reprotect h
+             _ -> error "could not make handler"
     where
       apiClient = currentClient api
       apiAppServer = appServer api

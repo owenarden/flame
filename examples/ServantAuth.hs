@@ -117,30 +117,30 @@ prin_database = protect $ fromList [ ("key1", alice)
                                    , ("key2", bob)
                                    , ("key3", carol)
                                    ]
-authit :: Prin -> (forall client. DPrin client -> Maybe (s :≽: (client ∧ (∇) client), c :===: client))
-authit = undefined
                                  
 -- | A method that, when given a password, will return a Prin.
 -- This is our bespoke (and bad) authentication logic.
-lookupPrin :: ByteString -> Handler (FLAC IO (I AppServer) (I AppServer) Prin)
-lookupPrin key = return $
+authenticate :: ByteString -> Handler (FLAC IO (I AppServer) (I AppServer) MemoAuth)
+authenticate key = return $
     assume2 (SConf SBot ≽ SConf (st $ appServer memoAPI)) $
       use prin_database $ \database ->
       case Map.lookup key database of
         Nothing ->  protect $ undefined --throwError (err403 { errBody = "Invalid Cookie" })
-        Just usr -> protect $ usr
+        Just usr -> protect $ withPrin usr $ \client ->
+          IFCAuthorized client (ActsFor, Equiv)
 
 -- | The auth handler wraps a function from Request -> Handler Prin
 -- we look for a Cookie and pass the value of the cookie to `lookupPrin`.
-authHandler :: AuthHandler Request (FLAC IO (I AppServer) (I AppServer) Prin)
+authHandler :: AuthHandler Request (FLAC IO (I AppServer) (I AppServer) MemoAuth)
 authHandler =
   let handler req = case lookup "servant-auth-cookie" (requestHeaders req) of
         Nothing -> throwError (err401 { errBody = "Missing auth header" })
-        Just authCookieKey -> lookupPrin authCookieKey
+        Just authCookieKey -> authenticate authCookieKey
   in mkAuthHandler handler
 
+
 -- | We need to specify the data returned after authentication
-type instance AuthServerData (AuthProtect "cookie-auth") = FLAC IO (I AppServer) (I AppServer) Prin
+type instance AuthServerData (AuthProtect "cookie-auth") = FLAC IO (I AppServer) (I AppServer) MemoAuth
 
 {- memo specific -}
 data Memo = Memo
@@ -170,13 +170,15 @@ type MemoAPI =
 memoAPI :: Proxy MemoAPI
 memoAPI = Proxy
 
+type MemoAuth = IFCAuth MemoAPI
+
 type MemoStore = Lbl (I AppServer) MemoDB
 type MemoDB = IFCTVar (I AppServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
 
 -- | The context that will be made available to request handlers. We supply the
 -- "cookie-auth"-tagged request handler defined above, so that the 'HasServer' instance
 -- of 'AuthProtect' can extract the handler and run it on the request.
-genAuthServerContext :: Context (AuthHandler Request (FLAC IO (I AppServer) (I AppServer) Prin) ': '[])
+genAuthServerContext :: Context (AuthHandler Request (FLAC IO (I AppServer) (I AppServer) MemoAuth) ': '[])
 genAuthServerContext = authHandler :. EmptyContext
 
 main :: IO ()
@@ -235,31 +237,28 @@ instance IFCApp AppServer Client MemoAPI where
 server :: MemoStore -> Server MemoAPI
 server s = getMemosH :<|> postMemoH :<|> deleteMemoH
   where
-    auth :: forall client. DPrin client -> Maybe (AppServer :≽: (client ∧ (∇) client), Client :===: client)
-    auth = undefined
-
     apiClient = currentClient memoAPI
     apiAppServer = appServer memoAPI
     mkSig client = (dyn (client^←), dyn client)
-    deleteMemoH :: FLAC IO (I AppServer) (I AppServer) Prin
+    deleteMemoH :: MemoAuth
                  -> Int
                  -> FLAC Handler (I Client) Client ()
-    deleteMemoH p i = mkHandler memoAPI p undefined mkSig (apiClient^←) apiClient $
+    deleteMemoH p i = mkHandler memoAPI p mkSig (apiClient^←) apiClient $
        \client pc' l' -> do
           Equiv <- pc' `eq` (client^←)
           Equiv <- l' `eq` client
           (ActsFor, Equiv) <- auth client
           return (Equiv, Equiv, reprotect $ ebind s $ \db -> deleteMemo client db i)
 
-    getMemosH :: FLAC IO (I AppServer) (I AppServer) Prin
+    getMemosH :: MemoAuth
               -> FLAC Handler (I Client) Client [Memo]
-    getMemosH p = mkHandler memoAPI p undefined undefined (apiClient^←) apiClient undefined
+    getMemosH p = mkHandler memoAPI p mkSig (apiClient^←) apiClient undefined
     --getMemosH p = mkHandler p getMemos
 
-    postMemoH :: FLAC IO (I AppServer) (I AppServer) Prin
+    postMemoH :: MemoAuth
               -> ReqMemo
               -> FLAC Handler (I Client) Client Memo
-    postMemoH p r = mkHandler memoAPI p undefined undefined (apiClient^←) apiClient undefined
+    postMemoH p r = mkHandler memoAPI p mkSig (apiClient^←) apiClient undefined
     --postMemoH p r = mkHandler p $ postMemo r
 
 deleteMemo :: DPrin client
