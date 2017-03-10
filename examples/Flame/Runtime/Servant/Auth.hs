@@ -21,7 +21,7 @@
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.Servant.Auth
-  (EnforceFLA, IFCAuth(..), IFCApp(..))
+  (EnforceFLA, IFCAuth(..), authorize, IFCApp(..))
 where
 import Data.Constraint
 
@@ -123,30 +123,45 @@ flacRunAction action env req respond k = runResourceT $ do
        Right x  -> return $! k (unsafeUnlabel x)
 
 data IFCAuth api where
-   IFCAuthorized :: IFCApp s c api =>
+   IFCAuthorized :: IFCApp api =>
                  DPrin client
-              -> (s :≽: (client ∧ (∇) client), c :===: client)
+              -> (AppServer api :≽: (client ∧ (∇) client)
+                 , Client api :===: client)
               -> IFCAuth api
 
-class IFCApp s c api | api -> s c where
+authorize :: (IFCApp api, AppServer api ≽ (client ∧ (∇) client), Client api === client) =>
+             DPrin client
+          -> IFCAuth api
+authorize client = IFCAuthorized client (ActsFor, Equiv)
+
+class IFCApp api where
+
+  type AppServer api :: KPrin
+  type Client    api :: KPrin
 
   appServerPrin     :: Proxy api -> Prin
   currentClientPrin :: Proxy api -> Prin
-  appServerTy     :: Proxy api -> SPrin s
-  currentClientTy :: Proxy api -> SPrin c
+  appServerTy       :: Proxy api -> SPrin (AppServer api)
+  currentClientTy   :: Proxy api -> SPrin (Client api)
 
-  appServer :: Proxy api -> DPrin s
+  appServer :: Proxy api -> DPrin (AppServer api)
   appServer api =  (appServerPrin api) <=> (appServerTy api)
-  currentClient :: Proxy api -> DPrin c
+  currentClient :: Proxy api -> DPrin (Client api)
   currentClient api =  (currentClientPrin api) <=> (currentClientTy api)
 
-  mkHandler :: forall pc l a. (s ≽ (C c ∧ I c ∧ (∇) c), (I c ∧ C s) ≽ pc, (C c ∧ I s) ≽ l) =>
+  mkHandler :: forall pc l a. ( AppServer api ≽ (C (Client api) ∧ I (Client api) ∧ (∇) (Client api))
+                              , (I (AppServer api)) ≽ I pc
+                              , (I (AppServer api)) ≽ I l
+                              , (I (Client api) ∧ C (AppServer api)) ≽ pc
+                              , (C (Client api) ∧ I (AppServer api)) ≽ l
+                              ) =>
             Proxy api
-            -> IFCAuth api
+            -> FLAC IO (I (AppServer api)) (I (AppServer api)) (IFCAuth api)
             -> (forall client. DPrin client -> (Prin, Prin))
             -> DPrin pc
             -> DPrin l
             -> (forall client pc' l'.
+                ((AppServer api) ≽ (client ∧ (∇) client), (Client api) === client) =>
                      DPrin client
                   -> DPrin pc' 
                   -> DPrin l'
@@ -154,15 +169,16 @@ class IFCApp s c api | api -> s c where
                            , l :===: l'
                            , FLAC IO pc' l' a
                            )
-                     )
+               )
             -> FLAC Handler pc l a
-  mkHandler api auth toPCL pc l f = 
-    liftIO $ case auth of
+  mkHandler api auth_ toPCL pc l f = 
+    liftIO $ use (reprotect auth_ :: FLAC IO pc l (IFCAuth api)) $ \auth ->
+     case auth of
       IFCAuthorized (client :: DPrin client) (ActsFor, Equiv) ->
        let (pc'_, l'_) = toPCL client in
          withPrin pc'_ $ \(pc' :: DPrin pc') -> 
           withPrin l'_ $ \(l' :: DPrin l') -> 
-           case f pc' l' client of 
+           case f client pc' l' of
              Just (Equiv, Equiv, h) -> reprotect h
              _ -> error "could not make handler"
     where

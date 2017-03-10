@@ -112,26 +112,36 @@ type Carol = KName "Carol"
 carol = Name "Carol"
 
 -- | A database mapping keys to users.
-prin_database :: FLAC IO (I AppServer) AppServer (Map ByteString Prin)
+prin_database :: FLAC IO (I MemoServer) MemoServer (Map ByteString Prin)
 prin_database = protect $ fromList [ ("key1", alice)
                                    , ("key2", bob)
                                    , ("key3", carol)
                                    ]
-                                 
+
+lookupPrin :: ByteString -> FLAC IO (I MemoServer) (I MemoServer) Prin
+lookupPrin key = 
+  assume2 (SConf SBot ≽ SConf (st $ appServer memoAPI)) $
+   use prin_database $ \database ->
+    case Map.lookup key database of
+      Nothing ->  protect $ undefined --throwError (err403 { errBody = "Invalid Cookie" })
+      Just usr -> protect $ usr
+                                
 -- | A method that, when given a password, will return a Prin.
 -- This is our bespoke (and bad) authentication logic.
-authenticate :: ByteString -> Handler (FLAC IO (I AppServer) (I AppServer) MemoAuth)
-authenticate key = return $
-    assume2 (SConf SBot ≽ SConf (st $ appServer memoAPI)) $
-      use prin_database $ \database ->
-      case Map.lookup key database of
-        Nothing ->  protect $ undefined --throwError (err403 { errBody = "Invalid Cookie" })
-        Just usr -> protect $ withPrin usr $ \client ->
-          IFCAuthorized client (ActsFor, Equiv)
+authenticate :: ByteString -> Handler (FLAC IO (I MemoServer) (I MemoServer) MemoAuth)
+authenticate key = return $ use (lookupPrin key) $ \usr -> 
+                    withPrin @(FLAC IO (I MemoServer) (I MemoServer) MemoAuth) usr $ \client ->
+                    let sclient = st client in
+                     assume2 (apiAppServer ≽ (sclient *∧ (*∇) sclient)) $
+                      assume2 (apiClient ≽ sclient) $ assume2 (sclient ≽ apiClient) $
+                       protect $ authorize client
+  where
+    apiAppServer = st $ appServer memoAPI
+    apiClient    = st $ currentClient memoAPI
 
 -- | The auth handler wraps a function from Request -> Handler Prin
 -- we look for a Cookie and pass the value of the cookie to `lookupPrin`.
-authHandler :: AuthHandler Request (FLAC IO (I AppServer) (I AppServer) MemoAuth)
+authHandler :: AuthHandler Request (FLAC IO (I MemoServer) (I MemoServer) MemoAuth)
 authHandler =
   let handler req = case lookup "servant-auth-cookie" (requestHeaders req) of
         Nothing -> throwError (err401 { errBody = "Missing auth header" })
@@ -140,7 +150,7 @@ authHandler =
 
 
 -- | We need to specify the data returned after authentication
-type instance AuthServerData (AuthProtect "cookie-auth") = FLAC IO (I AppServer) (I AppServer) MemoAuth
+type instance AuthServerData (AuthProtect "cookie-auth") = FLAC IO (I MemoServer) (I MemoServer) MemoAuth
 
 {- memo specific -}
 data Memo = Memo
@@ -159,26 +169,26 @@ instance ToJSON ReqMemo
 
 type MemoAPI =
          "memos" :> AuthProtect "cookie-auth"
-          :> EnforceFLA (I Client) (Client) (Get '[JSON] [Memo]) 
+          :> EnforceFLA (I MemoClient) (MemoClient) (Get '[JSON] [Memo]) 
     :<|> "memos" :> AuthProtect "cookie-auth"
           :> ReqBody '[JSON] ReqMemo
-          :> EnforceFLA (I Client) (Client) (Post '[JSON] Memo) 
+          :> EnforceFLA (I MemoClient) (MemoClient) (Post '[JSON] Memo) 
     :<|> "memos" :> AuthProtect "cookie-auth"
          :> Capture "id" Int
-         :>  EnforceFLA (I Client) (Client) (Delete '[JSON] ())
+         :>  EnforceFLA (I MemoClient) (MemoClient) (Delete '[JSON] ())
 
 memoAPI :: Proxy MemoAPI
 memoAPI = Proxy
 
 type MemoAuth = IFCAuth MemoAPI
 
-type MemoStore = Lbl (I AppServer) MemoDB
-type MemoDB = IFCTVar (I AppServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
+type MemoStore = Lbl (I MemoServer) MemoDB
+type MemoDB = IFCTVar (I MemoServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
 
 -- | The context that will be made available to request handlers. We supply the
 -- "cookie-auth"-tagged request handler defined above, so that the 'HasServer' instance
 -- of 'AuthProtect' can extract the handler and run it on the request.
-genAuthServerContext :: Context (AuthHandler Request (FLAC IO (I AppServer) (I AppServer) MemoAuth) ': '[])
+genAuthServerContext :: Context (AuthHandler Request (FLAC IO (I MemoServer) (I MemoServer) MemoAuth) ': '[])
 genAuthServerContext = authHandler :. EmptyContext
 
 main :: IO ()
@@ -196,11 +206,11 @@ runApp = do
 
   where
     newMemoDB :: DPrin p
-              -> FLAC IO (I AppServer) (I AppServer)
+              -> FLAC IO (I MemoServer) (I MemoServer)
                   (IFCTVar p (Int, M.Map Int Memo))
     newMemoDB p = newIFCTVarIO (0, M.empty)
 
-    initialMemoStore :: FLAC IO (I AppServer) (I AppServer)
+    initialMemoStore :: FLAC IO (I MemoServer) (I MemoServer)
                          (M.Map Prin (SealedType IFCTVar (Int, M.Map Int Memo)))
     initialMemoStore =
       withPrin alice $ \alice' -> withPrin bob $ \bob' -> withPrin carol $ \carol' -> 
@@ -217,56 +227,53 @@ app s = serveWithContext memoAPI genAuthServerContext $ server s
 
 --doc :: String
 --doc = markdown $ docs memoAPI
+type MemoServer = KTop
+type MemoClient = KName "MemoClient"
 
 {- common defs -}
-type Client = KName "Client"
--- currentClient :: SPrin Client
--- currentClient = 
-
-type AppServer = KTop
---appServer :: SPrin KTop
---appServer = STop
-
-instance IFCApp AppServer Client MemoAPI where
+instance IFCApp MemoAPI where
+  type AppServer MemoAPI = MemoServer
+  type Client MemoAPI = MemoClient
+  
   appServerPrin = const $ Top
   appServerTy   = const $ STop
 
-  currentClientPrin = const $ Name "Client"
-  currentClientTy   = const $ SName (Proxy :: Proxy "Client")
+  currentClientPrin = const $ Name "MemoClient"
+  currentClientTy   = const $ SName (Proxy :: Proxy "MemoClient")
 
 server :: MemoStore -> Server MemoAPI
 server s = getMemosH :<|> postMemoH :<|> deleteMemoH
   where
-    apiClient = currentClient memoAPI
-    apiAppServer = appServer memoAPI
+    apiMemoClient = currentClient memoAPI
+    apiMemoServer = appServer memoAPI
     mkSig client = (dyn (client^←), dyn client)
-    deleteMemoH :: MemoAuth
+    deleteMemoH :: FLAC IO (I MemoServer) (I MemoServer) MemoAuth
                  -> Int
-                 -> FLAC Handler (I Client) Client ()
-    deleteMemoH p i = mkHandler memoAPI p mkSig (apiClient^←) apiClient $
-       \client pc' l' -> do
-          Equiv <- pc' `eq` (client^←)
-          Equiv <- l' `eq` client
-          (ActsFor, Equiv) <- auth client
-          return (Equiv, Equiv, reprotect $ ebind s $ \db -> deleteMemo client db i)
+                 -> FLAC Handler (I MemoClient) MemoClient ()
+    deleteMemoH auth i = mkHandler memoAPI auth mkSig (apiMemoClient^←) apiMemoClient $
+       \(client :: DPrin client) pc' l' -> do
+            Equiv <- pc' `eq` (client^←)
+            Equiv <- l' `eq` client
+            return (Equiv, Equiv, reprotect $ ebind s $ \db -> deleteMemo client db i)
 
-    getMemosH :: MemoAuth
-              -> FLAC Handler (I Client) Client [Memo]
-    getMemosH p = mkHandler memoAPI p mkSig (apiClient^←) apiClient undefined
-    --getMemosH p = mkHandler p getMemos
+    getMemosH :: FLAC IO (I MemoServer) (I MemoServer) MemoAuth
+              -> FLAC Handler (I MemoClient) MemoClient [Memo]
+    getMemosH auth = mkHandler memoAPI auth mkSig (apiMemoClient^←) apiMemoClient $
+       \(client :: DPrin client) pc' l' -> do
+            Equiv <- pc' `eq` (client^←)
+            Equiv <- l' `eq` client
+            return (Equiv, Equiv, reprotect $ ebind s $ \db -> getMemos client db)
 
-    postMemoH :: MemoAuth
+    postMemoH :: FLAC IO (I MemoServer) (I MemoServer) MemoAuth
               -> ReqMemo
-              -> FLAC Handler (I Client) Client Memo
-    postMemoH p r = mkHandler memoAPI p mkSig (apiClient^←) apiClient undefined
-    --postMemoH p r = mkHandler p $ postMemo r
+              -> FLAC Handler (I MemoClient) MemoClient Memo
+    postMemoH auth r = mkHandler memoAPI auth mkSig (apiMemoClient^←) apiMemoClient $
+       \(client :: DPrin client) pc' l' -> do
+            Equiv <- pc' `eq` (client^←)
+            Equiv <- l' `eq` client
+            return (Equiv, Equiv, reprotect $ ebind s $ \db -> postMemo client db r)
 
-deleteMemo :: DPrin client
-           -> MemoDB
-           -> Int
-           -> FLAC IO (I client) client ()
-deleteMemo client db i = undefined
-{- 
+
 withMemoDB :: forall client b .
              DPrin client
              -> MemoDB
@@ -279,44 +286,42 @@ withMemoDB client db f =
   use (readIFCTVar db) $ \db' -> 
   fromJust $ do -- TODO: handle Nothing case!
    entry <- M.lookup (dyn client) db'
-   unsealTypeWith @client @IFCTVar @(Int, Map Int Memo) @(FLAC STM (I client) client b)
-           client entry f
+   unsealTypeWith @client @IFCTVar
+     @(Int, Map Int Memo) @(FLAC STM (I client) client b)
+     client entry f
 
-getMemos :: (Client === client, client === l) =>
-            DPrin client
+getMemos :: forall client. DPrin client
          -> MemoDB
          -> FLAC IO (I client) client [Memo]
 getMemos client db = atomically $
-    withMemoDB client db $ \(client':: DPrin l) db' ->
-    use (readIFCTVar db') $ \(_, m) ->
-    protect $ M.elems m
+    withMemoDB client db $ \(client':: DPrin client') db' ->
+    -- TODO: think about changing signature of readIFCTVar to make it easier on the solver
+    use (readIFCTVar db' :: FLAC STM (I client) ((I client) ⊔ client') (Int, Map Int Memo)) $ \(_, m) ->
+     protect $ M.elems m
 
-postMemo :: (Client === client, client === l) =>
-            ReqMemo
-         -> DPrin client
+postMemo :: forall client. DPrin client
          -> MemoDB
+         -> ReqMemo
          -> FLAC IO (I client) client Memo
-postMemo req client db =
+postMemo client db req =
    use getCurrentTime $ \time -> atomically $
-   withMemoDB client db $ \(client':: DPrin l) db' ->
-   use (readIFCTVar db') $ \(c, sm) ->
+   withMemoDB client db $ \(client':: DPrin client') db' ->
+   use (readIFCTVar db' :: FLAC STM (I client) ((I client) ⊔ client') (Int, Map Int Memo)) $ \(c, sm) ->
      let m = Memo (c + 1) (memo req) time
          entry = (id m, M.insert (id m) m sm)
      in
        apply (writeIFCTVar db' entry) $ \m' ->
-       use (readIFCTVar db') $ \(c', sm') ->
        protect m
 
-deleteMemo :: (Client === client, client === l) =>
-              Int
-           -> DPrin client
+deleteMemo :: DPrin client
            -> MemoDB
+           -> Int
            -> FLAC IO (I client) client ()
-deleteMemo i client db = atomically $
+deleteMemo client db i = atomically $
   withMemoDB client db $ \(client':: DPrin l) db' ->
   modifyIFCTVar db' $ \(c, sm) ->
   (c, M.delete i sm)
--}
+
 -- NOTE: ↓ for documentation
 instance ToCapture (Capture "id" Int) where
     toCapture _ = DocCapture "id" "memo id"
@@ -330,13 +335,13 @@ instance ToSample [Memo] where
 instance ToSample ReqMemo where
     toSamples _ = singleSample $ ReqMemo "Try haskell-servant."
 
-instance ToSample (FLAC IO (I Client) Client Memo) where
+instance ToSample (FLAC IO (I MemoClient) MemoClient Memo) where
     toSamples _ = singleSample $ protect sampleMemo
 
-instance ToSample (FLAC IO (I Client) Client [Memo]) where
+instance ToSample (FLAC IO (I MemoClient) MemoClient [Memo]) where
     toSamples _ = singleSample $ protect [sampleMemo]
 
-instance ToSample (FLAC IO (I Client) Client ()) where
+instance ToSample (FLAC IO (I MemoClient) MemoClient ()) where
     toSamples _ = singleSample $ protect ()
 
 sampleMemo :: Memo
