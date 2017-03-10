@@ -136,7 +136,6 @@ decideActsFor _flrec givens  _deriveds wanteds = do
     let wanteds' = filter (isWanted . ctEvidence) wanteds
     let unit_wanteds = concat $ map (toActsFor flrec) wanteds'
     -- XXX: natnormalise zonkCt's these givens, but that appears to remove the ones I care about.
-    -- TODO: should also extract NomEq predicates on principal vars to peg their bounds: just subst them everywhere, I guess?
     let unit_givens = concat $ map (toActsFor flrec) givens
     case unit_wanteds of
       [] -> return (TcPluginOk [] [])
@@ -162,7 +161,8 @@ solvePrins flrec givens afcts =
     let (conf_givens_flat, integ_givens_flat) = flattenDelegations (map snd givens)
         conf_closure =  computeDelClosure conf_givens_flat
         integ_closure = computeDelClosure integ_givens_flat
-    in {- pprTrace "integclosure" (ppr integ_closure) $ -} do 
+    in {- pprTrace "confclosure" (ppr conf_closure) $ pprTrace "integclosure" (ppr integ_closure) $ -}
+    do 
      tcPluginTrace "solvePrins" (ppr afcts)
      solve flrec{confClosure = conf_closure, integClosure = integ_closure,
                  confBounds = initVarMap, integBounds = initVarMap}
@@ -207,7 +207,8 @@ solvePrins flrec givens afcts =
               solved_cts = map (lookupCT . fst) iafs
           preds <- boundsToPredTypes new_flrec 
           (ev, wanted) <- evMagic new_flrec solved_cts preds
-          pprTrace "solved bounds: " (ppr cnf' <+> ppr intg') $ return $ Simplified (ev, wanted)
+          {- pprTrace "solved bounds: " (ppr cnf' <+> ppr intg') $-}
+          return $ Simplified (ev, wanted)
 
     wakeup isConf solved chg = let varToDeps = if isConf then confVarToAFDeps else integVarToAFDeps
                                    eqns = foldl (\deps v ->
@@ -279,7 +280,6 @@ solvePrins flrec givens afcts =
 toActsFor :: FlameRec -> Ct -> [ActsForCt]
 toActsFor flrec ct = --pprTrace "toActsFor Ct:" (ppr ct) $
   case classifyPredType $ ctEvPred $ ctEvidence ct of
-    -- XXX: Should (fsk ~ True)? Probably
     EqPred NomEq af@(TyConApp tc [p,q]) fsk
       | tc == (actsfor flrec) -> maybeToList $ toAFCt (p,q)
 
