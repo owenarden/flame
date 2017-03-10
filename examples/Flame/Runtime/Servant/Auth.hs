@@ -34,8 +34,10 @@ import Network.Wai                      (Request, requestHeaders, Response)
 import Control.Monad.Trans.Resource     (MonadResource (..), ResourceT, runResourceT)
 import Data.Maybe                       (fromMaybe)
 
+import Servant 
 import Servant.API.ContentTypes
 import Servant.Server.Internal
+import Servant.Foreign
 
 import Flame.Principals
 import Flame.Runtime.Principals
@@ -46,11 +48,8 @@ import Flame.TCB.Assume
 
 import qualified Control.Monad.IO.Class as MIO (liftIO) 
 
-import Servant 
-
 newtype EnforceFLA (pc::KPrin) (l::KPrin) a = EnforceFLA a 
 newtype EnforceNM (pc::KPrin) (l::KPrin) a = EnforceNM a
-
 
 {-- XXX: why doesn't this more general instance work? -}
 instance (AllCTRender ctypes a, ReflectMethod method, KnownNat status,
@@ -79,7 +78,6 @@ instance (AllCTRender ctypes a, HasServer (Post ctypes a) context) =>
       where method = reflectMethod (Proxy :: Proxy POST)
             status = toEnum . fromInteger $ 200
 
--- | Adapted to Flame from methodRouter in Servant.Server.Internal  (v0.10)
 instance (AllCTRender ctypes a, HasServer (Delete ctypes a) context) =>
   HasServer (EnforceFLA pc l (Delete ctypes a)) context where
     type ServerT (EnforceFLA pc l (Delete ctypes a)) e = FLAC e pc l a 
@@ -87,6 +85,16 @@ instance (AllCTRender ctypes a, HasServer (Delete ctypes a) context) =>
     route Proxy _ action = flacMethodRouter method (Proxy :: Proxy ctypes) status action
       where method = reflectMethod (Proxy :: Proxy DELETE)
             status = toEnum . fromInteger $ 200
+
+instance (HasForeign lang ftype api)
+  => HasForeign lang ftype (EnforceFLA pc l api) where
+  type Foreign ftype (EnforceFLA pc l api) = Foreign ftype api
+
+  foreignFor lang ftype Proxy req =
+    foreignFor lang ftype (Proxy :: Proxy api) req
+
+
+-- | Adapted to Flame from methodRouter in Servant.Server.Internal  (v0.10)
 flacMethodRouter :: (AllCTRender ctypes a)
              => Method -> Proxy ctypes -> Status
              -> Delayed env (FLACT Handler Lbl pc l a)

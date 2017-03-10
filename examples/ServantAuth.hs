@@ -170,7 +170,7 @@ type MemoAPI =
           :> EnforceFLA (I MemoClient) (MemoClient) (Get '[JSON] [Memo]) 
     :<|> "memos" :> AuthProtect "cookie-auth"
           :> ReqBody '[JSON] ReqMemo
-          :> EnforceFLA (I MemoClient) (MemoClient) (Post '[JSON] Memo) 
+          :> EnforceFLA MemoClient MemoClient (Post '[JSON] Memo) 
     :<|> "memos" :> AuthProtect "cookie-auth"
          :> Capture "id" Int
          :>  EnforceFLA (I MemoClient) (MemoClient) (Delete '[JSON] ())
@@ -209,12 +209,6 @@ instance (HasForeignType lang ftype Text, HasForeign lang ftype api)
         , _argType  = typeFor lang (Proxy :: Proxy ftype) (Proxy :: Proxy Text) }
       subP  = Proxy :: Proxy api
 
-instance (HasForeign lang ftype api)
-  => HasForeign lang ftype (EnforceFLA pc l api) where
-  type Foreign ftype (EnforceFLA pc l api) = Foreign ftype api
-
-  foreignFor lang ftype Proxy req =
-    foreignFor lang ftype (Proxy :: Proxy api) req
 
 writeJS :: IO ()
 writeJS = do
@@ -298,28 +292,28 @@ server s = getMemosH :<|> postMemoH :<|> deleteMemoH
 
     postMemoH :: FLAC IO (I MemoServer) (I MemoServer) MemoAuth
               -> ReqMemo
-              -> FLAC Handler (I MemoClient) MemoClient Memo
-    postMemoH auth r = mkHandler memoAPI auth mkSig (apiMemoClient^←) apiMemoClient $
+              -> FLAC Handler MemoClient MemoClient Memo
+    postMemoH auth r = mkHandler memoAPI auth mkSig apiMemoClient apiMemoClient $
        \(client :: DPrin client) pc' l' -> do
-            Equiv <- pc' `eq` (client^←)
+            Equiv <- pc' `eq` client
             Equiv <- l' `eq` client
             return (Equiv, Equiv, reprotect $ ebind s $ \db -> postMemo client db r)
 
 
-withMemoDB :: forall client b .
+withMemoDB :: forall client pc l b .
              DPrin client
              -> MemoDB
              -> (forall client'. (client === client') =>
                                  DPrin client'
                               -> IFCTVar client' (Int, (M.Map Int Memo))
-                              -> FLAC STM (I client) client b)
-             -> FLAC STM (I client) client b
+                              -> FLAC STM pc l b)
+             -> FLAC STM pc l b
 withMemoDB client db f =
   use (readIFCTVar db) $ \db' -> 
   fromJust $ do -- TODO: handle Nothing case!
    entry <- M.lookup (dyn client) db'
    unsealTypeWith @client @IFCTVar
-     @(Int, Map Int Memo) @(FLAC STM (I client) client b)
+     @(Int, Map Int Memo) @(FLAC STM pc l b)
      client entry f
 
 getMemos :: forall client. DPrin client
@@ -327,18 +321,17 @@ getMemos :: forall client. DPrin client
          -> FLAC IO (I client) client [Memo]
 getMemos client db = atomically $
     withMemoDB client db $ \(client':: DPrin client') db' ->
-    -- TODO: think about changing signature of readIFCTVar to make it easier on the solver
-    use (readIFCTVar db' :: FLAC STM (I client) ((I client) ⊔ client') (Int, Map Int Memo)) $ \(_, m) ->
+    use (readIFCTVar db') $ \(_, m) ->
      protect $ M.elems m
 
 postMemo :: forall client. DPrin client
          -> MemoDB
          -> ReqMemo
-         -> FLAC IO (I client) client Memo
+         -> FLAC IO client client Memo
 postMemo client db req =
    use getCurrentTime $ \time -> atomically $
    withMemoDB client db $ \(client':: DPrin client') db' ->
-   use (readIFCTVar db' :: FLAC STM (I client) ((I client) ⊔ client') (Int, Map Int Memo)) $ \(c, sm) ->
+   use (readIFCTVar db') $ \(c, sm) ->
      let m = Memo (c + 1) (memo req) time
          entry = (id m, M.insert (id m) m sm)
      in
