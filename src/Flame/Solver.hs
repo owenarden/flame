@@ -129,7 +129,9 @@ lookupFlameRec = do
 decideActsFor :: FlameRec -> [Ct] -> [Ct] -> [Ct]
                -> TcPluginM TcPluginResult
 decideActsFor _ _givens _deriveds []      = return (TcPluginOk [] [])
-decideActsFor flrec givens  _deriveds wanteds = do
+decideActsFor _flrec givens  _deriveds wanteds = do
+    level <- unsafeTcPluginTcM getTcLevel
+    let flrec = _flrec{tclevel = level}
     -- GHC 7.10.1 puts deriveds with the wanteds, so filter them out
     let wanteds' = filter (isWanted . ctEvidence) wanteds
     let unit_wanteds = concat $ map (toActsFor flrec) wanteds'
@@ -162,27 +164,30 @@ solvePrins flrec givens afcts =
         integ_closure = computeDelClosure integ_givens_flat
     in {- pprTrace "integclosure" (ppr integ_closure) $ -} do 
      tcPluginTrace "solvePrins" (ppr afcts)
-     level <- unsafeTcPluginTcM getTcLevel
-     solve flrec{tclevel = level,
-                 confClosure = conf_closure, integClosure = integ_closure,
-                 confBounds = initVarMap level, integBounds = initVarMap level}
+     solve flrec{confClosure = conf_closure, integClosure = integ_closure,
+                 confBounds = initVarMap, integBounds = initVarMap}
            indexedAFs
   where
     allVars = concat [uniqSetToList $ fvNorm p `unionUniqSets` fvNorm q | (ct, (p, q)) <- afcts]
-    initVarMap :: TcLevel -> Map TyVar CoreJNorm
-    initVarMap level = fromList $ map (\v -> (v, J [M [B]])) $ [v | v <- allVars, isTouchableMetaTyVar level v]
+
+    initVarMap :: Map TyVar CoreJNorm
+    initVarMap = fromList $ map (\v -> (v, J [M [B]])) $ [v | v <- allVars, isTouchableMetaTyVar (tclevel flrec) v]
+
     indexedAFCTs = zip [0..length afcts] afcts
     indexedAFs = map (\(i, (ct, af)) -> (i, af)) $ indexedAFCTs
     lookupCT i = fst $ afcts !! i
-    confAFToVarDeps = fromList $ map (\(i, (ct, af@(N p _, N q _))) -> ((i, af), uniqSetToList $ fvJNorm q)) $ indexedAFCTs 
+
+    confAFToVarDeps = fromList $ map (\(i, (ct, af@(N p _, N q _))) -> ((i, af), touchableFVs q)) $ indexedAFCTs 
     confVarToAFDeps = foldl (\deps (iaf, vars) -> 
                               unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
                             empty $ toList confAFToVarDeps
 
-    integAFToVarDeps = fromList $ map (\(i, (ct, af@(N _ p, N _ q))) -> ((i, af), uniqSetToList $ fvJNorm q)) $ indexedAFCTs 
+    integAFToVarDeps = fromList $ map (\(i, (ct, af@(N _ p, N _ q))) -> ((i, af), touchableFVs q)) $ indexedAFCTs 
     integVarToAFDeps = foldl (\deps (iaf, vars) -> 
                               unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
                              empty $ toList integAFToVarDeps
+
+    touchableFVs p = [ v | v <- uniqSetToList $ fvJNorm p, isTouchableMetaTyVar (tclevel flrec) v ]
 
     solve :: FlameRec
             -> [(Int, (CoreNorm, CoreNorm))]
@@ -202,8 +207,7 @@ solvePrins flrec givens afcts =
               solved_cts = map (lookupCT . fst) iafs
           preds <- boundsToPredTypes new_flrec 
           (ev, wanted) <- evMagic new_flrec solved_cts preds
-          return $ Simplified (ev, wanted)
-
+          pprTrace "solved bounds: " (ppr cnf' <+> ppr intg') $ return $ Simplified (ev, wanted)
 
     wakeup isConf solved chg = let varToDeps = if isConf then confVarToAFDeps else integVarToAFDeps
                                    eqns = foldl (\deps v ->
@@ -244,7 +248,7 @@ solvePrins flrec givens afcts =
       in case actsForJ flrec isConf p' q' of
         Just pf -> Win
         Nothing -> 
-          case uniqSetToList $ fvJNorm p of
+          case touchableFVs p of
             [] -> Lose (lookupCT (fst af), snd af)
             [var] -> case joinWith q (findWithDefault jbot var bounds) of
                        Just bnd -> ChangeBounds [(var, bnd)]
