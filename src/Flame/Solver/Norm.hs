@@ -261,7 +261,7 @@ flattenDelegations givens = foldl
    - compute fixpoint
  -}
 computeDelClosure :: [(CoreJNorm,CoreJNorm)] -> CoreDelClosure
-computeDelClosure givens = pprTrace "computing closure from" (ppr givens) $
+computeDelClosure givens = -- pprTrace "computing closure from" (ppr givens) $
   [(inferior, superiors) | (inferior, _, superiors) <- fixpoint initialEdges]
   where
     top = (J [M [T]])
@@ -328,19 +328,17 @@ substBase _ _ _ p@(P s) = J [M [p]]
 substBase _ _ _ u@(U s) = J [M [u]]
 substBase level bounds isConf (V tv) | isTouchableMetaTyVar level tv =
   let s = findWithDefault jbot tv bounds in
-   pprTrace "subst " (ppr tv <+> ppr s) $ s
+   {- pprTrace "subst " (ppr tv <+> ppr s) $-} s
 substBase level bounds isConf (V tv) = J [M [V tv]]
 substBase level bounds isConf (VarVoice tv) | isTouchableMetaTyVar level tv = 
   if isConf then
     undefined -- XXX: should have already been removed
   else
-    let s = integ (voiceOf (N (findWithDefault jbot tv bounds) jbot)) in
-     pprTrace "subst " (ppr tv) $ s
+    integ (voiceOf (N (findWithDefault jbot tv bounds) jbot))
 substBase level bounds isConf (VarVoice tv) = J [M [VarVoice tv]]
 substBase level bounds isConf (VarEye tv) | isTouchableMetaTyVar level tv = 
-  if isConf then pprTrace "subst " (ppr tv) $ 
-    let s = conf (eyeOf (N jbot (findWithDefault jbot tv bounds))) in
-     pprTrace "subst " (ppr tv) $ s
+  if isConf then 
+    conf (eyeOf (N jbot (findWithDefault jbot tv bounds)))
   else
     undefined -- XXX: should have already been removed
 substBase level bounds isConf (VarEye tv) = J [M [VarEye tv]]

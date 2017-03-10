@@ -160,7 +160,7 @@ solvePrins flrec givens afcts =
     let (conf_givens_flat, integ_givens_flat) = flattenDelegations (map snd givens)
         conf_closure =  computeDelClosure conf_givens_flat
         integ_closure = computeDelClosure integ_givens_flat
-    in pprTrace "integclosure" (ppr integ_closure) $ do 
+    in {- pprTrace "integclosure" (ppr integ_closure) $ -} do 
      tcPluginTrace "solvePrins" (ppr afcts)
      level <- unsafeTcPluginTcM getTcLevel
      solve flrec{tclevel = level,
