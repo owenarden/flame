@@ -21,7 +21,7 @@
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.Servant.Auth
-  (EnforceFLA, IFCAuth(..), authorize, IFCApp(..))
+  (EnforceFLA, IFCAuth, authorize, IFCApp(..))
 where
 import Data.Constraint
 

@@ -37,7 +37,7 @@ import GHC.Generics (Generic)
 import Network.Wai (Application, Response)
 import Network.Wai.Handler.Warp (run)
 import System.IO as SIO
-import Servant ((:>), (:<|>)(..), ReqBody, Capture, Get, Post, Delete, Proxy(..), Server, serve, ServantErr, HasServer(..), reflectMethod, ReflectMethod(..))
+import Servant ((:>), (:<|>)(..), ReqBody, Capture, Get, Post, Delete, Proxy(..), Server, serve, ServantErr, HasServer(..), reflectMethod, ReflectMethod(..), serveDirectoryFileServer)
 import           Servant.API.ContentTypes
 import Servant.Docs (docs, ToCapture(..), DocCapture(..), ToSample(..), markdown, singleSample, HasDocs(..))
 import Servant.Docs.Internal (ToAuthInfo(..), authInfo, DocAuthentication(..))
@@ -92,14 +92,12 @@ import Control.Monad.Trans.Either (EitherT)
 import Flame.TCB.Assume
 import Flame.TCB.IFC (Lbl(..))
 
---instance ToJSON Prin
---deriving instance Generic Prin
-
--- These instances require TCB access
---instance ToJSON a => ToJSON (FLAC IO (I Client) Client a) where
---  toJSON la = toJSON $ unsafeUnlabel $ unsafePerformIO (runFLAC la)
-
---deriving instance Generic (Lbl Client a)
+-- JS stuff
+import qualified Data.Text.IO as TextIO
+import Servant.Foreign
+import Servant.JS
+import qualified Language.Javascript.JQuery
+import Control.Lens hiding (use, Context)
 
 {- Auth specific -}
 type Alice = KName "Alice"
@@ -180,6 +178,10 @@ type MemoAPI =
 memoAPI :: Proxy MemoAPI
 memoAPI = Proxy
 
+type MemoAPI_Raw = MemoAPI :<|> Raw
+memoAPI_Raw :: Proxy MemoAPI_Raw
+memoAPI_Raw = Proxy
+
 type MemoAuth = IFCAuth MemoAPI
 
 type MemoStore = Lbl (I MemoServer) MemoDB
@@ -191,12 +193,41 @@ type MemoDB = IFCTVar (I MemoServer) (M.Map Prin (SealedType IFCTVar (Int, M.Map
 genAuthServerContext :: Context (AuthHandler Request (FLAC IO (I MemoServer) (I MemoServer) MemoAuth) ': '[])
 genAuthServerContext = authHandler :. EmptyContext
 
+apiJS :: Text
+apiJS = jsForAPI memoAPI jquery
+
+instance (HasForeignType lang ftype Text, HasForeign lang ftype api)
+  => HasForeign lang ftype (AuthProtect "cookie-auth" :> api) where
+  type Foreign ftype (AuthProtect "cookie-auth" :> api) = Foreign ftype api
+
+  foreignFor lang Proxy Proxy req =
+    foreignFor lang Proxy subP $ req & reqHeaders <>~ [HeaderArg arg]
+    where
+      hname = "servant-auth-cookie"
+      arg   = Arg
+        { _argName = PathSegment hname
+        , _argType  = typeFor lang (Proxy :: Proxy ftype) (Proxy :: Proxy Text) }
+      subP  = Proxy :: Proxy api
+
+instance (HasForeign lang ftype api)
+  => HasForeign lang ftype (EnforceFLA pc l api) where
+  type Foreign ftype (EnforceFLA pc l api) = Foreign ftype api
+
+  foreignFor lang ftype Proxy req =
+    foreignFor lang ftype (Proxy :: Proxy api) req
+
+writeJS :: IO ()
+writeJS = do
+  TextIO.writeFile "html/api.js" apiJS
+  jq <- TextIO.readFile =<< Language.Javascript.JQuery.file
+  TextIO.writeFile "html/jq.js" jq
+
 main :: IO ()
 main = do
     args <- getArgs
     case args of
-        --["d"] -> putStrLn doc
-        ["s"] -> runApp
+ --       ["d"] -> putStrLn doc
+        ["s"] -> writeJS >> runApp
         _     -> putStrLn "unknown option"
 
 runApp :: IO ()
@@ -223,10 +254,11 @@ runApp = do
                            ]
 
 app :: MemoStore -> Application
-app s = serveWithContext memoAPI genAuthServerContext $ server s
+app s = serveWithContext memoAPI_Raw genAuthServerContext $ (server s :<|> serveDirectoryFileServer "html")
 
 --doc :: String
 --doc = markdown $ docs memoAPI
+
 type MemoServer = KTop
 type MemoClient = KName "MemoClient"
 
@@ -242,7 +274,7 @@ instance IFCApp MemoAPI where
   currentClientTy   = const $ SName (Proxy :: Proxy "MemoClient")
 
 server :: MemoStore -> Server MemoAPI
-server s = getMemosH :<|> postMemoH :<|> deleteMemoH
+server s = getMemosH :<|> postMemoH :<|> deleteMemoH 
   where
     apiMemoClient = currentClient memoAPI
     apiMemoServer = appServer memoAPI
