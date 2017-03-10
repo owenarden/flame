@@ -27,11 +27,14 @@ instance Ord Type where
 
 data Base v s
   = P s -- ^ Primitive principal
+  | U s -- ^ Uninterpreted type
   | V v -- ^ Type var
   | B   -- ^ Bottom
   | T   -- ^ Top
   | VarVoice v -- ^ Voice of type var
   | VarEye v -- ^ Eye of type var
+  | UVoice s -- ^ Voice of uninterpreted type
+  | UEye   s -- ^ Eye of uninterpreted type
   deriving (Eq,Ord)
 
 newtype MNorm v s = M { unM :: [Base v s]}
@@ -62,6 +65,7 @@ instance (Outputable v, Outputable s)  => Outputable (Norm v s) where
                   (cS, iS) -> cS <+> text "→ ∧ " <+> iS <+> text "←" 
     where
       pprSimple (J [M [P s]]) = ppr s
+      pprSimple (J [M [U s]]) = ppr s
       pprSimple (J [M [V v]]) = ppr v
       pprSimple (J [M [B]]) = text "⊥"
       pprSimple (J [M [T]]) = text "⊤"
@@ -76,10 +80,13 @@ instance (Outputable v, Outputable s) => Outputable (MNorm v s) where
 instance (Outputable v, Outputable s) => Outputable (Base v s) where
     ppr (P s)   = ppr s
     ppr (V s)   = ppr s
+    ppr (U s)   = ppr s
     ppr B = text "⊥"
     ppr T = text "⊤"
     ppr (VarVoice v) = text "∇(" <+> ppr v <+> text "→)"
     ppr (VarEye v) = text "Δ(" <+> ppr v <+> text "→)"
+    ppr (UVoice v) = text "∇(" <+> ppr v <+> text "→)"
+    ppr (UEye v) = text "Δ(" <+> ppr v <+> text "→)"
 
 -- | 'Norm' with 'TyVar' variables
 type CoreNorm       = Norm TyVar  Type

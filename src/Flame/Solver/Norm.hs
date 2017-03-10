@@ -147,7 +147,8 @@ jnormPrin flrec isConf (TyConApp tc [x,y])
   | tc == (kconj flrec) = mergeJNormJoin <$> jnormPrin' x <*> jnormPrin' y
   | tc == (kdisj flrec) = mergeJNormMeet <$> jnormPrin' x <*> jnormPrin' y
   where jnormPrin' = jnormPrin flrec isConf
-jnormPrin flrec isConf ty = pprTrace "unexpected principal: " (ppr ty) Nothing
+jnormPrin flrec isConf ty = pprTrace "unexpected principal: " (ppr ty) $
+                     return $ (J [M [U ty]])
 
 ---- | Convert a type of /kind/ 'Flame.Principals.KPrin' to a 'JNorm' term
 normPrin :: FlameRec -> Type -> Maybe CoreNorm
@@ -166,7 +167,8 @@ normPrin flrec (TyConApp tc [x])
 normPrin flrec (TyConApp tc [x,y])
   | tc == (kconj flrec) = mergeNormJoin <$> normPrin flrec x <*> normPrin flrec y 
   | tc == (kdisj flrec) = mergeNormMeet <$> normPrin flrec x <*> normPrin flrec y 
-normPrin flrec ty = pprTrace "unexpected principal: " (ppr ty) Nothing
+normPrin flrec ty = pprTrace "unexpected principal: " (ppr ty) $
+                     return $ N (J [M [U ty]]) (J [M [U ty]])
   
 voiceOf :: Norm v s -> Norm v s
 voiceOf (N conf _) = N (J [M [B]]) (wrapVars conf)
@@ -176,6 +178,8 @@ voiceOf (N conf _) = N (J [M [B]]) (wrapVars conf)
     wrapVars'' (V v) = VarVoice v 
     wrapVars'' (VarVoice v) = VarVoice v 
     wrapVars'' (VarEye v) = (V v)
+    wrapVars'' (UVoice s) = UVoice s
+    wrapVars'' (UEye   s) = (U s)
     wrapVars'' p = p
   
 eyeOf :: Norm v s -> Norm v s
@@ -186,6 +190,8 @@ eyeOf (N _ integ) = N (wrapVars integ) (J [M [B]])
     wrapVars'' (V v) = VarEye v 
     wrapVars'' (VarVoice v) = (V v) 
     wrapVars'' (VarEye v) = VarEye v 
+    wrapVars'' (UVoice s) = U s
+    wrapVars'' (UEye   s) = UEye s
     wrapVars'' p = p
 
 -- | Convert a 'SOP' term back to a type of /kind/ 'GHC.TypeLits.Nat'
@@ -212,6 +218,9 @@ reifyBase :: FlameRec -> CoreBase -> Type
 reifyBase flrec (V v)   = mkTyVarTy v
 reifyBase flrec (VarEye v)   = mkTyConApp (keye flrec) [mkTyVarTy v]
 reifyBase flrec (VarVoice v) = mkTyConApp (kvoice flrec) [mkTyVarTy v]
+reifyBase flrec (U s)   = s
+reifyBase flrec (UEye s)   = mkTyConApp (keye flrec) [s]
+reifyBase flrec (UVoice s) = mkTyConApp (kvoice flrec) [s]
 reifyBase flrec (P s)   = mkTyConApp (kname flrec) [s]
 reifyBase flrec B       = mkTyConApp (kbot flrec) []
 reifyBase flrec T       = mkTyConApp (ktop flrec) []
@@ -252,7 +261,7 @@ flattenDelegations givens = foldl
    - compute fixpoint
  -}
 computeDelClosure :: [(CoreJNorm,CoreJNorm)] -> CoreDelClosure
-computeDelClosure givens =
+computeDelClosure givens = pprTrace "computing closure from" (ppr givens) $
   [(inferior, superiors) | (inferior, _, superiors) <- fixpoint initialEdges]
   where
     top = (J [M [T]])
@@ -316,6 +325,7 @@ substBase :: TcLevel -> CoreBounds -> Bool -> CoreBase -> CoreJNorm
 substBase _ _ _ B = jbot
 substBase _ _ _ T = J [M [T]]
 substBase _ _ _ p@(P s) = J [M [p]]
+substBase _ _ _ u@(U s) = J [M [u]]
 substBase level bounds isConf (V tv) | isTouchableMetaTyVar level tv =
   let s = findWithDefault jbot tv bounds in
    pprTrace "subst " (ppr tv <+> ppr s) $ s
@@ -334,5 +344,7 @@ substBase level bounds isConf (VarEye tv) | isTouchableMetaTyVar level tv =
   else
     undefined -- XXX: should have already been removed
 substBase level bounds isConf (VarEye tv) = J [M [VarEye tv]]
+substBase level bounds isConf (UVoice t) = J [M [UVoice t]]
+substBase level bounds isConf (UEye t) = J [M [UEye t]]
 
 jbot = J [M [B]]

@@ -68,8 +68,11 @@ fvMNorm = unionManyUniqSets . map fvBase . unM
 
 fvBase :: CoreBase -> UniqSet TyVar
 fvBase (P _) = emptyUniqSet
+fvBase (U _) = emptyUniqSet
 fvBase B     = emptyUniqSet
 fvBase T     = emptyUniqSet
 fvBase (V v)        = unitUniqSet v
 fvBase (VarVoice v) = unitUniqSet v
 fvBase (VarEye v)   = unitUniqSet v
+fvBase (UVoice _)   = emptyUniqSet
+fvBase (UEye _)     = emptyUniqSet

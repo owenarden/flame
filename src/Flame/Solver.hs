@@ -59,7 +59,7 @@ import GHC.TcPluginM.Extra (lookupModule, lookupName, newGiven, tracePlugin, evB
 import OccName    (mkTcOcc, mkDataOcc, mkClsOcc)
 import Module     (mkModuleName)
 import DataCon (promoteDataCon, dataConWrapId)
-import TyCon (tyConResKind)
+import TyCon (tyConKind, tyConResKind, tyConName, tyConUnique)
 import TysWiredIn  ( heqDataCon, heqTyCon )
 
 -- internal
@@ -160,7 +160,7 @@ solvePrins flrec givens afcts =
     let (conf_givens_flat, integ_givens_flat) = flattenDelegations (map snd givens)
         conf_closure =  computeDelClosure conf_givens_flat
         integ_closure = computeDelClosure integ_givens_flat
-    in do
+    in pprTrace "integclosure" (ppr integ_closure) $ do 
      tcPluginTrace "solvePrins" (ppr afcts)
      level <- unsafeTcPluginTcM getTcLevel
      solve flrec{tclevel = level,
@@ -273,16 +273,14 @@ solvePrins flrec givens afcts =
 
 -- Extract the actsfor constraints
 toActsFor :: FlameRec -> Ct -> [ActsForCt]
-toActsFor flrec ct =
+toActsFor flrec ct = --pprTrace "toActsFor Ct:" (ppr ct) $
   case classifyPredType $ ctEvPred $ ctEvidence ct of
-
-    -- XXX: Should (fsk ~ True)?
+    -- XXX: Should (fsk ~ True)? Probably
     EqPred NomEq af@(TyConApp tc [p,q]) fsk
       | tc == (actsfor flrec) -> maybeToList $ toAFCt (p,q)
 
     EqPred NomEq p q
-      | typeKind p == tyConResKind (kprin flrec)
-        && typeKind q == tyConResKind (kprin flrec)
+      | isKPrinKind (typeKind p) && isKPrinKind (typeKind q) 
         -> catMaybes [toAFCt (p, q), toAFCt (q, p)]
 
     IrredPred af -> maybeToList $ do pair <- maybeActsFor af
@@ -292,15 +290,19 @@ toActsFor flrec ct =
       let pairs = mapMaybe maybeActsFor afs
       in mapMaybe toAFCt pairs
 
+    EqPred NomEq p q -> []
+
     _ -> []
-  where
-    maybeActsFor af = case af of
-                        TyConApp tc [p,q]
-                          | tc == (actsfor flrec) -> Just (p, q)
-                        af -> Nothing
-    toAFCt (p, q) = do sup <- normPrin flrec p
-                       inf <- normPrin flrec q
-                       return (ct, (sup, inf))
+ where
+   isKPrinKind (TyConApp tc _) = tyConUnique tc == tyConUnique (kprin flrec)
+   isKPrinKind _ = False
+   maybeActsFor af = case af of
+                       TyConApp tc [p,q]
+                         | tc == (actsfor flrec) -> Just (p, q)
+                       af -> Nothing
+   toAFCt (p, q) = do sup <- normPrin flrec p
+                      inf <- normPrin flrec q
+                      return (ct, (sup, inf))
                          
 boundsToPredTypes :: FlameRec -> TcPluginM [PredType]
 boundsToPredTypes flrec = do
