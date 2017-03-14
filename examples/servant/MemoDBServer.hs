@@ -274,6 +274,7 @@ server s = getMemosH :<|> postMemoH :<|> deleteMemoH
     apiMemoClient = currentClient memoAPI
     apiMemoServer = appServer memoAPI
     mkSig client = (dyn (client^←), dyn client)
+    mkSig2 client = (dyn client, dyn client)
     deleteMemoH :: FLAC IO (I MemoServer) (I MemoServer) MemoAuth
                  -> Int
                  -> FLAC Handler (I MemoClient) MemoClient ()
@@ -294,7 +295,7 @@ server s = getMemosH :<|> postMemoH :<|> deleteMemoH
     postMemoH :: FLAC IO (I MemoServer) (I MemoServer) MemoAuth
               -> ReqMemo
               -> FLAC Handler MemoClient MemoClient Memo
-    postMemoH auth r = mkHandler memoAPI auth mkSig apiMemoClient apiMemoClient $
+    postMemoH auth r = mkHandler memoAPI auth mkSig2 apiMemoClient apiMemoClient $
        \(client :: DPrin client) pc' l' -> do
             Equiv <- pc' `eq` client
             Equiv <- l' `eq` client

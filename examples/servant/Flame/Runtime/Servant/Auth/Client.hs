@@ -100,7 +100,6 @@ instance -- Note [Non-Empty Content Types]
   ) => HasClient (EnforceFLA pc l (Delete cts' a)) where
   type Client (EnforceFLA pc l (Delete cts' a)) = FLACT ClientM Lbl pc l a
 
-  --clientWithRoute :: Proxy api -> Req -> Client api
   clientWithRoute Proxy req =
         use (flacPerformRequestCT (Proxy :: Proxy ct) method req) $ \(_, res) ->
          protect res

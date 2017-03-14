@@ -76,8 +76,6 @@ getMemos :<|> postMemo :<|> deleteMemo = client memoApi
 runFLACClientM m env = runClientM (runFLAC m) env
 stdout = mkStdout $ secretUntrusted
 
---unsafePerformFLACIO m = unsafeProtect $ UnsafeMkLbl <$> liftIO m
-
 queries :: FLAC ClientM S.MemoClient S.MemoClient ()
 queries =
   use (getMemos (authenticateAs "key1")) $ \memos ->
