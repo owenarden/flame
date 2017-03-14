@@ -16,7 +16,7 @@
 {-# LANGUAGE PostfixOperators #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module ServantClient where
+module MemoDBClient where
 
 import Data.Aeson
 import Data.Proxy
@@ -27,7 +27,7 @@ import Servant.Client
 import Servant.Client.Experimental.Auth
 import Servant.Common.Req 
 
-import qualified ServantAuth as S (MemoAPI, Memo, Client, AppServer, ReqMemo(..))
+import qualified MemoDBServer as S (MemoAPI, Memo, MemoClient, MemoServer, ReqMemo(..))
 import Data.Text
 
 import Flame.Runtime.Principals
@@ -42,8 +42,12 @@ import Flame.Runtime.Sealed
 import Data.String
 import Control.Monad.IO.Class
 
+import Flame.Runtime.Servant.Auth
+import Flame.Runtime.Servant.Auth.Client
+import Flame.Runtime.IO as FIO
+
 instance FromJSON S.Memo
-instance FromJSON a => FromJSON (Lbl S.Client a) where
+instance FromJSON a => FromJSON (Lbl S.MemoClient a) where
   parseJSON v = UnsafeMkLbl <$> (parseJSON v)
 
 type instance AuthClientData (AuthProtect "cookie-auth") = Text
@@ -53,40 +57,36 @@ authenticateAs s = mkAuthenticateReq s (\s -> addHeader "servant-auth-cookie" s)
 memoApi :: Proxy S.MemoAPI
 memoApi = Proxy
 
-primGetMemos :: AuthenticateReq (AuthProtect "cookie-auth") -> ClientM (Lbl S.Client [S.Memo])
-primPostMemo :: AuthenticateReq (AuthProtect "cookie-auth") -> S.ReqMemo -> ClientM (Lbl S.Client S.Memo)
-primDeleteMemo :: AuthenticateReq (AuthProtect "cookie-auth") -> Int -> ClientM (Lbl S.Client ())
-primGetMemos :<|> primPostMemo :<|> primDeleteMemo = client memoApi
-
 --
 -- TODO: Missing IFC checks
 --
 getMemos :: AuthenticateReq (AuthProtect "cookie-auth")
-         -> FLACClientM (I S.Client) S.Client [S.Memo]
-getMemos r = unsafeProtect (primGetMemos r)
+         -> FLAC ClientM (I S.MemoClient) S.MemoClient [S.Memo]
 
 postMemo :: AuthenticateReq (AuthProtect "cookie-auth")
          -> S.ReqMemo
-         -> FLACClientM (I S.Client) S.Client S.Memo
-postMemo r m = unsafeProtect (primPostMemo r m)
+         -> FLAC ClientM S.MemoClient S.MemoClient S.Memo
 
 deleteMemo :: AuthenticateReq (AuthProtect "cookie-auth")
            -> Int
-           -> FLACClientM (I S.Client) S.Client ()
-deleteMemo r i = unsafeProtect (primDeleteMemo r i)
+           -> FLAC ClientM (I S.MemoClient) S.MemoClient ()
 
-type FLACClientM a b c = FLAC ClientM a b c
+getMemos :<|> postMemo :<|> deleteMemo = client memoApi
 
 runFLACClientM m env = runClientM (runFLAC m) env
-unsafePerformFLACIO m = unsafeProtect $ UnsafeMkLbl <$> liftIO m
+stdout = mkStdout $ secretUntrusted
 
-queries :: FLACClientM (I S.Client) S.Client ()
+--unsafePerformFLACIO m = unsafeProtect $ UnsafeMkLbl <$> liftIO m
+
+queries :: FLAC ClientM S.MemoClient S.MemoClient ()
 queries =
   use (getMemos (authenticateAs "key1")) $ \memos ->
-  use (unsafePerformFLACIO (putStr "GET key1: " >> print memos)) $ \_ ->
-  use (postMemo (authenticateAs "key1") (S.ReqMemo "Try Haskell servant.")) $ \_ ->
+  apply (FIO.liftIO $ hPutStr stdout "GET key1 before POST: ") $ \_ ->
+  apply (FIO.liftIO $ hPrint stdout memos) $ \_ ->
+  apply (postMemo (authenticateAs "key1") (S.ReqMemo "Try Haskell servant.")) $ \_ ->
   use (getMemos (authenticateAs "key1")) $ \memos' ->
-  unsafePerformFLACIO (putStr "GET key1 after POST: " >> print memos')
+  FIO.liftIO $ apply (hPutStr stdout "GET key1 after POST: ") $ \_ ->
+  FIO.liftIO $ hPrint stdout memos'
 
 run :: IO ()
 run = do

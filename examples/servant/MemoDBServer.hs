@@ -75,6 +75,7 @@ import Control.Monad.Trans.Resource     (MonadResource (..), ResourceT, runResou
 
 
 import Flame.Runtime.Servant.Auth
+import Flame.Runtime.Servant.Auth.Server
 
 import Flame.Runtime.Principals
 import Flame.IFC
