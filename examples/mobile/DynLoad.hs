@@ -21,8 +21,7 @@ import Control.Monad
 import Unsafe.Coerce
 import Control.Monad.IO.Class
 
-test = "import Flame.Principals\n\
-\f x y = Flame.Principals.SBot"
+test = "f x y = Flame.Principals.SBot"
 --  "commit :: FLA m e n => SPrin p -> m e n (I p) (C p) a -> m e n (I p) p a \n\
 --   \commit p v = assume ((SBot*←) ≽ (p*←)) (reprotect v)"
 
@@ -43,11 +42,9 @@ main = do
             dflags3 <- liftIO $ interpretPackageEnv dflags2
             --_ <- liftIO $ initPackages dflags2
             mod <- lookupModule (mkModuleName "Flame.Principals") (Just $ mkFastString "flame")
-            setContext [ IIDecl $ (simpleImportDecl (mkModuleName "Flame.Principals"))
-                       --, IIDecl $ simpleImportDecl (mkModuleName "Flame.Runtime.Principals")
-                       --, IIDecl $ simpleImportDecl (mkModuleName "Flame.IFC")
-                       ]
             result <- load LoadAllTargets
+            idecl <- parseImportDecl "import Flame.Principals"
+            setContext [IIDecl idecl]
             [fname] <- runDecls test
             -- At this point we have an evaluation context which has
             -- loaded and compiled the definition of f
