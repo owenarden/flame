@@ -285,7 +285,7 @@ computeDelClosure givens = -- pprTrace "computing closure from" (ppr givens) $
       ++ concat [structMeetEdges (J [M sup]) | sup <- subsequencesOfSize (length seq - 1) seq]
 
     initialEdges :: [(CoreJNorm, CoreJNorm, [CoreJNorm])]
-    initialEdges = [(inf, inf, union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
+    initialEdges = [(inf, inf, sort $ union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
                                             $ concat [jsups | (jinf, _, jsups) <- structJoinEdges inf, jinf == inf])
                                      $ concat [msups | (minf, _, msups) <- structMeetEdges inf, minf == inf])
                     | inf <- principals]
@@ -305,14 +305,15 @@ computeDelClosure givens = -- pprTrace "computing closure from" (ppr givens) $
     fixpoint edges = let (graph, vtxToEdges, prinToVtx) = graphFromEdges edges in
                      let vtxToPrin v = let (x, _, _) = vtxToEdges v in x in
                      let newEdges = [(vtxToPrin inf, vtxToPrin inf, 
-                                                        (map vtxToPrin $ reachable graph inf) ++
+                                                        (sort (map vtxToPrin $ reachable graph inf)) ++
                                                         computeStructEdges (graph, vtxToEdges, prinToVtx) inf)
                                     | inf <- vertices graph] in
                      if edges == newEdges then
                        newEdges 
-                     else
+                     else 
                        fixpoint newEdges
 
+    -- TODO: implement
     computeStructEdges (graph, vtxToEdges, prinToVtx) vtx = []
 
 substJNorm :: TcLevel -> CoreBounds -> Bool -> CoreJNorm -> CoreJNorm
