@@ -127,4 +127,5 @@ actsForB flrec isConf _p _q
     superiors :: CoreJNorm -> [CoreJNorm]
     superiors q = case find ((== q) . fst) delClosure of
                     Just (q, sups) -> map (substJNorm (tclevel flrec) bounds isConf) sups
+                    _ | q /= top -> superiors top
                     _ -> []

@@ -287,7 +287,8 @@ computeDelClosure givens = -- pprTrace "computing closure from" (ppr givens) $
     initialEdges :: [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     initialEdges = [(inf, inf, sort $ union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
                                             $ concat [jsups | (jinf, _, jsups) <- structJoinEdges inf, jinf == inf])
-                                     $ concat [msups | (minf, _, msups) <- structMeetEdges inf, minf == inf])
+                                     $ (concat [msups | (minf, _, msups) <- structMeetEdges inf, minf == inf] ++ [top])
+                                     )
                     | inf <- principals]
 
     principals :: [CoreJNorm]
