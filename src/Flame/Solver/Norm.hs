@@ -251,7 +251,7 @@ flattenDelegations givens = foldl
     mkM p = M [p]
 
  {- 
-   TODO?
+   TODO: delegations based on structural edges
    - for each conjunction on the LHS, add a pseudo-node to the graph that is
        reachable from each conjunct and from which the intersection of the
        superiors of each conjunct are reachable.
@@ -267,22 +267,23 @@ computeDelClosure givens = -- pprTrace "computing closure from" (ppr givens) $
     top = (J [M [T]])
     bot = (J [M [B]])
     baseSeqToJ seq = J [M seq]
-    {-
-      For principals in a given in base form, 
-        (b ∧ b ...) ≽ (b ∨ b ...)
-      we want a node for each subsequence of conjuncts and disjuncts
-    -}
+    
     structJoinEdges :: CoreJNorm -> [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     structJoinEdges (J []) = [] 
     structJoinEdges (J seq) = 
+      {- for sequence of elements in each conjunct, add an edge from that sequence to the conjunct -}
       [(J inf, J inf, [J seq]) | inf <- subsequencesOfSize (length seq - 1) seq]
+      {- recurse on all subsequences -}
       ++ concat [structJoinEdges (J inf) | inf <- subsequencesOfSize (length seq - 1) seq]
 
     structMeetEdges :: CoreJNorm -> [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     structMeetEdges (J [M []]) = [] 
     structMeetEdges (J [M seq]) = 
+      {- for each disjunct, add an edge to each subsequence of the disjunct -}
       [(baseSeqToJ seq, baseSeqToJ seq, map baseSeqToJ $ subsequencesOfSize (length seq - 1) seq)]
       ++ concat [structMeetEdges (J [M sup]) | sup <- subsequencesOfSize (length seq - 1) seq]
+    {- for principals in base form, there are no other structural meet edges -}
+    structMeetEdges (J seq) = []
 
     initialEdges :: [(CoreJNorm, CoreJNorm, [CoreJNorm])]
     initialEdges = [(inf, inf, sort $ union (union (nub [gsup | (gsup, ginf) <- givens, ginf == inf])
@@ -291,6 +292,11 @@ computeDelClosure givens = -- pprTrace "computing closure from" (ppr givens) $
                                      )
                     | inf <- principals]
 
+    {-
+      For principals in a given in base form, 
+        (b ∧ b ...) ≽ (b ∨ b ...)
+      we want a node for each subsequence of conjuncts and disjuncts
+    -}
     principals :: [CoreJNorm]
     principals = [top, bot] ++ (nub $ concat [(map J $ concat [subsequencesOfSize i psC | i <- [1..length psC]]) ++
                                               (map baseSeqToJ $ concat [subsequencesOfSize i qs | i <- [1..length qs]])
