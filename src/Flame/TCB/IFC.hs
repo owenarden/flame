@@ -35,7 +35,7 @@ class Labeled (n :: KPrin -> * -> *) where
 
 {- Information flow control based on FLAM acts-for constraints -}
 class (Monad e, Labeled n) => IFC (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) e n where
-  lift   :: n l a -> m e n pc l a
+  lift   :: (pc ⊑ l) => n l a -> m e n pc l a
 
   apply  :: (pc ⊑ pc', pc ⊑ pc'') => m e n pc l a -> (n l a -> m e n pc' l' b) -> m e n pc'' l' b
 
@@ -45,18 +45,18 @@ class (Monad e, Labeled n) => IFC (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
 
   runIFC :: m e n pc l a -> e (n l a)
 
-  protect :: a -> m e n pc l a
+  protect :: (pc ⊑ l) => a -> m e n pc l a
   protect = lift . label
 
   use :: forall l l' pc pc' pc'' a b. (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'') =>
          m e n pc l a -> (a -> m e n pc' l' b) -> m e n pc'' l' b
   use x f = apply x $ \x' -> (ebind x' f :: m e n pc' l' b)
  
-  reprotect :: forall l l' pc pc' a. (l ⊑ l', pc ⊑ pc') => m e n pc l a -> m e n pc' l' a 
-  reprotect x = use x (protect :: a -> m e n SU l' a)
+  reprotect :: forall l l' pc pc' a. (l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l') => m e n pc l a -> m e n pc' l' a 
+  reprotect x = use x (protect :: a -> m e n (pc ⊔ l) l' a)
 
-  ffmap :: forall l l' pc pc' a b. (l ⊑ l', pc ⊑ pc', l ⊑ pc') => (a -> b) -> m e n pc l a -> m e n pc' l' b
-  ffmap f x = use x (\x' -> protect (f x') :: m e n pc' l' b)
+  ffmap :: forall l l' pc pc' a b. (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l') => (a -> b) -> m e n pc l a -> m e n pc' l' b
+  ffmap f x = use x (\x' -> protect (f x') :: m e n (pc ⊔ l) l' b)
 
   fjoin  :: forall l l' pc pc' a. (l ⊑ l',  pc ⊑ pc', l ⊑ pc') => m e n pc l (m e n pc' l' a) -> m e n pc' l' a
   fjoin x = use x id
@@ -73,18 +73,21 @@ class IFC m e n => FLA m e n where
 
 {- Nonmalleable information flow control -}
 class IFC m e n => NMIF m e n where
-  declassify :: (((C pc) ⊓ (C l')) ⊑ (C l),
-                 (C l') ⊑ ((C l) ⊔ (Δ (I l'))),
-                 (C l') ⊑ ((C l) ⊔ (Δ (I l'))),
-                 (I l') ⊑ (I l)) =>
+  declassify :: (((C pc) ⊓ (C l')) ⊑ (C l)
+                 , (C pc) ⊑ (C l')
+                 , (C l') ⊑ ((C l) ⊔ (Δ (I l' ⊔ I pc)))
+                 , (I l') === (I l)) =>
              m e n pc l' a -> m e n pc l a 
   declassify x = unsafeProtect $ do
     x' <- runIFC x 
     return $ label (unsafeUnlabel x')
-  endorse    :: (((I pc) ⊓ (I l')) ⊑ (I l),
-                 (I l') ⊑ ((I l) ⊔ ((∇) (C l'))),
-                 (I l') ⊑ ((I l) ⊔ ((∇) (C l'))),
-                 (C l') ⊑ (C l)) =>
+  endorse    :: ( ((I pc) ⊓ (I l')) ⊑ (I l)
+                , (I pc) ⊑ (I l')
+                , (I l') ⊑ ((I l) ⊔ ((∇) (C l' ⊔ C pc)))
+                --, (I l') ⊑ ((I l) ⊔ ((∇) (C l')))
+                --, (I l') ⊑ ((I l) ⊔ ((∇) (C pc)))
+                , (C l') === (C l)
+                ) =>
              m e n pc l' a -> m e n pc l a 
   endorse x = unsafeProtect $ do
     x' <- runIFC x 
@@ -170,3 +173,5 @@ instance Monad e => IFC NMT e Lbl where
   runIFC  = runNM
 
 instance Monad e => NMIF NMT e Lbl where {}
+{-
+-}

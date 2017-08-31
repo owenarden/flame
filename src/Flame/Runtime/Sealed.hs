@@ -39,9 +39,9 @@ unsealWith l s f =
                     _ -> Nothing
 
 data SealedIFC m e n a where
-  SealIFC :: IFC m e n => DPrin pc -> DPrin l -> m e n pc l a -> SealedIFC m e n a
+  SealIFC :: (IFC m e n, pc ⊑ l) => DPrin pc -> DPrin l -> m e n pc l a -> SealedIFC m e n a
 
-sealIFC :: IFC m e n => DPrin pc -> DPrin l -> m e n pc l a -> SealedIFC m e n a
+sealIFC :: (IFC m e n, pc ⊑ l) => DPrin pc -> DPrin l -> m e n pc l a -> SealedIFC m e n a
 sealIFC = SealIFC
 
 unsealIFC :: IFC m e n =>

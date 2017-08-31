@@ -29,7 +29,7 @@ ifThenElse :: Bool -> a -> a -> a
 ifThenElse True  t _ = t
 ifThenElse False _ f = f
 
-return :: IFC m e n => a -> m e n pc l a
+return :: (IFC m e n, pc ⊑ l) => a -> m e n pc l a
 return = protect
 
 (>>=) :: (IFC m e n, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'') =>
