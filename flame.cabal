@@ -45,8 +45,6 @@ library
                     reflection,
                     containers,
                     text,
-                    stm, 
-                    time,
                     ghc > 7.10, 
                     ghc-tcplugins-extra
   hs-source-dirs:      src
