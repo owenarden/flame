@@ -30,8 +30,6 @@ library
                     Flame.Runtime.IO,
                     Flame.Runtime.Sealed,
                     Flame.Runtime.IFCRef, 
-                    Flame.Runtime.STM, 
-                    Flame.Runtime.Time,
                     Flame.Runtime.Prelude
 
   -- other-modules:       
