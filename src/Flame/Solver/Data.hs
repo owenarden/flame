@@ -7,7 +7,7 @@ import Data.Map.Strict (Map, union, keys, fromList)
 
 -- GHC API
 import TyCon      (TyCon)
-import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace, ($$))
+import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, ($$))
 import Type       (Type,TyVar,cmpType)
 import TcRnTypes  (Ct)
 import TcEvidence (EvTerm (..))

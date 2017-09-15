@@ -14,7 +14,7 @@ import Data.Maybe  (mapMaybe)
 import Data.List   (find)
 
 -- GHC API
-import Outputable (Outputable (..), (<+>), text, ppr, pprTrace)
+import Outputable (Outputable (..), (<+>), text, ppr)
 
 data ActsForProof =                    
       AFTop

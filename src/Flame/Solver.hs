@@ -39,7 +39,7 @@ import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith
 import UniqSet             (uniqSetToList, unionUniqSets)
 import TcType              (TcLevel, isTouchableMetaTyVar)
 
-import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
+import Outputable (Outputable (..), (<+>), ($$), text, ppr)
 import Plugins    (Plugin (..), defaultPlugin)
 import TcEvidence (EvTerm (..))
 import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt, tcLookupTyCon, tcLookupDataCon,
@@ -149,7 +149,8 @@ decideActsFor _flrec givens  _deriveds wanteds = do
             return (TcPluginOk solved newWanteds)
           Impossible eq -> do
              --return (TcPluginContradiction [fromActsFor eq])
-             pprTrace "impossible: " (ppr eq) $ return (TcPluginOk [] [])
+             -- pprTrace "impossible: " (ppr eq) $
+             return (TcPluginOk [] [])
 
 solvePrins :: FlameRec
              -> [ActsForCt]
@@ -161,7 +162,7 @@ solvePrins flrec givens afcts =
     let (conf_givens_flat, integ_givens_flat) = flattenDelegations (map snd givens)
         conf_closure =  computeDelClosure conf_givens_flat
         integ_closure = computeDelClosure integ_givens_flat
-    in pprTrace "confclosure" (ppr conf_closure) $ pprTrace "integclosure" (ppr integ_closure) $
+    in -- pprTrace "confclosure" (ppr conf_closure) $ pprTrace "integclosure" (ppr integ_closure) $
     do 
      tcPluginTrace "solvePrins" (ppr afcts)
      solve flrec{confClosure = conf_closure, integClosure = integ_closure,
@@ -198,8 +199,10 @@ solvePrins flrec givens afcts =
                , search flrec False [] iafs [])
       tcPluginTrace "search result" (ppr sr)
       case sr of
-        (Lose af, _) -> pprTrace "impossible: " (ppr af) $ return (Impossible af)
-        (_, Lose af) -> pprTrace "impossible: " (ppr af) $ return (Impossible af)
+        (Lose af, _) -> -- pprTrace "impossible: " (ppr af) $
+          return (Impossible af)
+        (_, Lose af) -> -- pprTrace "impossible: " (ppr af) $
+          return (Impossible af)
         (cnf, intg) -> do
           let cnf' = resultBounds cnf
               intg' = resultBounds intg

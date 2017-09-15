@@ -10,7 +10,7 @@ import Data.Function (on)
 import Data.Map.Strict (findWithDefault)
 
 -- GHC API
-import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, pprTrace, showPpr)
+import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, showPpr)
 import Type       (cmpType, coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
 import TcType     (TcLevel, isTouchableMetaTyVar)
 
@@ -147,7 +147,7 @@ jnormPrin flrec isConf (TyConApp tc [x,y])
   | tc == (kconj flrec) = mergeJNormJoin <$> jnormPrin' x <*> jnormPrin' y
   | tc == (kdisj flrec) = mergeJNormMeet <$> jnormPrin' x <*> jnormPrin' y
   where jnormPrin' = jnormPrin flrec isConf
-jnormPrin flrec isConf ty = pprTrace "unexpected principal: " (ppr ty) $
+jnormPrin flrec isConf ty = -- pprTrace "unexpected principal: " (ppr ty) $
                      return $ (J [M [U ty]])
 
 ---- | Convert a type of /kind/ 'Flame.Principals.KPrin' to a 'JNorm' term
@@ -167,7 +167,7 @@ normPrin flrec (TyConApp tc [x])
 normPrin flrec (TyConApp tc [x,y])
   | tc == (kconj flrec) = mergeNormJoin <$> normPrin flrec x <*> normPrin flrec y 
   | tc == (kdisj flrec) = mergeNormMeet <$> normPrin flrec x <*> normPrin flrec y 
-normPrin flrec ty = pprTrace "unexpected principal: " (ppr ty) $
+normPrin flrec ty = -- pprTrace "unexpected principal: " (ppr ty) $
                      return $ N (J [M [U ty]]) (J [M [U ty]])
   
 voiceOf :: Norm v s -> Norm v s
