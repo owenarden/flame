@@ -1,4 +1,6 @@
 *.hi
 *.o
+*.dyn_o
+*.dyn_hi
 dist/
 .stack-work/
