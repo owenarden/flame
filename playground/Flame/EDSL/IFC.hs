@@ -12,6 +12,10 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.EDSL.IFC where
@@ -20,18 +24,22 @@ import Data.Proxy (Proxy(..))
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
-import Data.Functor.Identity 
 
 import Flame.Principals
 -- import Flame.TCB.Assume
 import Data.Int
 import Data.Functor.Identity
+import Text.PrettyPrint.Mainland
 
 {- EDSL imports -}
 import Control.Monad.Operational.Higher (singleInj, reexpress, Reexpressible, Interp)
+import qualified Control.Monad.State as CMS
+import Control.Monad.State.Class
+
+import Language.C.Quote.C
 import Language.C.Monad
 import Language.Embedded.Expression
-import Language.Embedded.Imperative
+import Language.Embedded.Imperative hiding (cedecl)
 import Language.Embedded.Backend.C
 import Language.Embedded.CExp
 import Language.Embedded.Imperative.CMD (RefCMD (GetRef))
@@ -92,14 +100,28 @@ transLAB (Apply lv f) =  do
   a' <- singleInj $ GetRef r
   transLAB $ f $ valToExp a'
 
+--compileLAB :: forall instr exp pc l a.
+--              ( HasCBackend instr exp
+--              , Reexpressible instr instr ()
+--              , Interp instr CGen (Param2 CExp CType)
+--              , FreeExp exp, RefCMD :<: instr
+--              )
+--           => Prog instr (LAB Label exp pc l) a -> String
+--compileLAB = (compile :: Prog instr CExp a -> String) . reexpress transLAB
+
 compileLAB :: forall instr exp pc l a.
               ( HasCBackend instr exp
               , Reexpressible instr instr ()
               , Interp instr CGen (Param2 CExp CType)
               , FreeExp exp, RefCMD :<: instr
               )
-           => Prog instr (LAB Label exp pc l) a -> String
-compileLAB = (compile :: Prog instr CExp a -> String) . reexpress transLAB
+           => String -> Prog instr (LAB Label exp pc l) a -> [(String,Doc)]
+compileLAB s = prettyCGen . wrapFunc s . (interpret :: Prog instr CExp a -> CGen a) . reexpress @instr transLAB
+
+wrapFunc s prog = do
+    (_,uvs,params,items) <- inNewFunction $ prog >> addStm [cstm| return 0; |]
+    setUsedVars s uvs
+    addGlobal [cedecl| int $id:s($params:params){ $items:items }|]
 
 class Labeled (n :: (* -> *) -> KPrin -> * -> *) exp where
   label   :: LABType exp a => exp a -> n exp l a
