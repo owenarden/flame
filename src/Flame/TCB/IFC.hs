@@ -18,103 +18,10 @@ import Data.Proxy (Proxy(..))
 import Data.Constraint
 import Data.Constraint.Unsafe
 import Data.Reflection
-import Data.Functor.Identity 
 
 import Flame.Principals
 import Flame.TCB.Assume
 
-data Label (c :: * -> Constraint) (l::KPrin) a where
-  Return :: c a => a -> Label c l a
-  Bind   :: (c a, l ⊑ l') => Label c l a -> (a -> Label c l' b) -> Label c l' b
-
-lbl_runLabel :: Label c l a -> Label c l a
-lbl_runLabel (Return v)   = Return v
-lbl_runLabel (Bind lv f) = let (Return v) = lbl_runLabel lv in (f v)
-
-
-lbl_unsafeUnlabel :: Label c l a  -> a
-lbl_unsafeUnlabel (Return v) = v
-lbl_unsafeUnlabel (Bind lv f) = let v = lbl_unsafeUnlabel lv in
-                                  lbl_unsafeUnlabel (f v)
-
-testAdd :: Lbl l Int -> Lbl l Int -> Int
-testAdd a b = unsafeUnlabel $ bind a $ \a' -> 
-                              bind b $ \b' -> label (a' + b')
-
-class Labeled (c :: * -> Constraint) (n :: (* -> Constraint) -> KPrin -> * -> *) where
-  label         :: c a => a -> n c l a
-  bind          :: (c a, c b, l ⊑ l') => n c l a -> (a -> n c l' b) -> n c l' b
-  unsafeUnlabel :: c a => n c l a -> a
-  relabel       :: (c a, l ⊑ l') => n c l a -> n c l' a
-  relabel a = bind a label 
-
-instance Labeled c Label where
-  label         = Return
-  bind          = Bind
-  unsafeUnlabel = lbl_unsafeUnlabel
-
-class CTrue a where {}
-instance CTrue a where {}
-
-type Lbl l a = Label CTrue l a
-
-data FLAC (c :: * -> Constraint) e (n :: (* -> Constraint) -> KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a where
-  Lift          :: (c a, Monad e) => n c l a -> FLAC c e n pc l a
-  EBind         :: (c a, c b, Monad e, l ⊑ l', l ⊑ pc') => n c l a -> (a -> FLAC c e n pc' l' b) -> FLAC c e n pc l' b
-  Apply         :: (c a, c b, Monad e, pc ⊑ pc', pc ⊑ pc'') => FLAC c e n pc l a -> (n c l a -> FLAC c e n pc' l' b) -> FLAC c e n pc'' l' b
-  Join          :: (c a, l ⊑ l',  pc ⊑ pc', l ⊑ pc') => FLAC c e n pc l (FLAC c e n pc' l' a) -> FLAC c e n pc' l' a
-  UnsafeProtect :: (c a, Monad e) => e (n c l a) -> FLAC c e n pc l a
-
-{-
---runCFLAC :: CFLAC c e n pc l a -> e (n c l a)
---runCFLAC (CLift lv) = UnsafeFLAC $ Prelude.return x
-
-{- Information flow control based on FLAM acts-for constraints -}
-class (Monad e, CLabeled c n) => CIFC (c :: * -> Constraint) (m :: (* -> Constraint) -> (* -> *) -> ((* -> Constraint) -> KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) e n where
-  clift   :: (c a, pc ⊑ l) => n c l a -> m c e n pc l a
-
-  capply  :: (c a, c b, pc ⊑ pc', pc ⊑ pc'') => m c e n pc l a -> (n c l a -> m c e n pc' l' b) -> m c e n pc'' l' b
-
-  cebind  :: (c a, c b, l ⊑ l', l ⊑ pc) => n c l a -> (a -> m c e n pc l' b) -> m c e n pc' l' b
-
-  cunsafeProtect :: c a => e (n c l a) -> m c e n pc l a
-
-
-  cprotect :: (c a, pc ⊑ l) => a -> m c e n pc l a
-  cprotect = clift . clabel
-
-  cuse :: forall l l' pc pc' pc'' a b. (c a, c b, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'') =>
-         m c e n pc l a -> (a -> m c e n pc' l' b) -> m c e n pc'' l' b
-  cuse x f = capply x $ \x' -> (cebind x' f :: m c e n pc' l' b)
- 
-  creprotect :: forall l l' pc pc' a. (c a, l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l') => m c e n pc l a -> m c e n pc' l' a 
-  creprotect x = cuse x (cprotect :: a -> m c e n (pc ⊔ l) l' a)
-
-  cffmap :: forall l l' pc pc' a b. (c a, c b, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l') => (a -> b) -> m c e n pc l a -> m c e n pc' l' b
-  cffmap f x = cuse x (\x' -> cprotect (f x') :: m c e n (pc ⊔ l) l' b)
-
-  cfjoin  :: forall l l' pc pc' a. (c a, l ⊑ l',  pc ⊑ pc', l ⊑ pc') => m c e n pc l (m c e n pc' l' a) -> m c e n pc' l' a
-
-instance Monad e => CIFC c CFLAC e CLbl where
-  clift  = CLift
-  cebind = CEBind
-  capply = CApply
-  cunsafeProtect = CUnsafeProtect
---  crunIFC  = runCFLAC
-  cfjoin = CJoin
--}
-
-
-
-
-
-
--- instance CIFC c m e n pc l a => RunnableIFC c m e n pc l a
---   crunIFC :: c a => m c e n pc l a -> e (n c l a)
--- 
--- instance CIFC c m e n pc l a => CompiledIFC c m e n pc l a
---   compileIFC :: c a => m c e n pc l a -> e (n c l a)
-{-
 {- An indexed monad for information flow on pure computation -}
 class Labeled (n :: KPrin -> * -> *) where
   label     :: a -> n l a
@@ -185,6 +92,7 @@ class IFC m e n => NMIF m e n where
   endorse x = unsafeProtect $ do
     x' <- runIFC x 
     return $ label (unsafeUnlabel x')
+
 {- A type for pure labeled computations -}
 data Lbl (l::KPrin) a where
   UnsafeMkLbl :: { unsafeRunLbl :: a } -> Lbl l a
@@ -207,7 +115,7 @@ lbl_unlabelU a = unsafeRunLbl a
 {- A Labeled instance for Lbl -}
 instance Labeled Lbl where
   label = lbl_label
-  bind  = lbl_bind
+  bind = lbl_bind
   unsafeUnlabel = unsafeRunLbl
   unlabelPT = lbl_unlabelPT 
   unlabelU = lbl_unlabelU
@@ -266,5 +174,4 @@ instance Monad e => IFC NMT e Lbl where
 
 instance Monad e => NMIF NMT e Lbl where {}
 {-
--}
 -}
