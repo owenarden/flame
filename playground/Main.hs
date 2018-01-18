@@ -7,6 +7,8 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Main where
@@ -15,16 +17,19 @@ import Data.Int
 import Data.Functor.Identity
 import Text.PrettyPrint.Mainland
 
-import Control.Monad.Operational.Higher (singleInj, reexpress)
+import Control.Monad.Operational.Higher (singleInj, reexpress, (:+:))
 
 import Language.Embedded.Expression
-import Language.Embedded.Imperative
+--import Language.Embedded.Imperative
 import Language.Embedded.Backend.C
 import Language.Embedded.CExp
 import Language.Embedded.Signature
 import Language.C.Monad 
+--import Language.Embedded.Imperative.CMD (RefCMD (GetRef))
 
 import Flame.EDSL.IFC
+import Flame.EDSL.CMD
+import Flame.EDSL.Frontend
 import Flame.Principals
 import Flame.Runtime.Principals
 
@@ -40,10 +45,6 @@ data HighExp a where
 
   HNot  :: HighExp Bool -> HighExp Bool
   HEq   :: Type a => HighExp a -> HighExp a -> HighExp Bool
-
-  --HPair  :: (Type a, Type b) => HighExp a -> HighExp b -> HighExp (a,b)
-  --HProjL :: (Type a, Type b) => HighExp (a, b) -> HighExp a
-  --HProjR :: (Type a, Type b) => HighExp (a, b) -> HighExp b
 
   --HInjL  :: (Type a, Type b) => HighExp a -> HighExp (Either a b)
   --HInjR  :: (Type a, Type b) => HighExp b -> HighExp (Either a b)
@@ -68,29 +69,20 @@ type CMD
     :+: ControlCMD  -- Control structures
     :+: FileCMD     -- Input/output
 
-instance CompExp HighExp where
-  compExp = compCExp <$> compHighExp
+transHighExp :: forall exp pc a. HighExp a -> Prog CMD CExp pc (CExp a)
+transHighExp (HVar v)    = return (varExp v)
+transHighExp (HLit a)    = return (constExp a)
+transHighExp (HAdd a b)  = (+)   <$> transHighExp a <*> transHighExp b
+transHighExp (HMul a b)  = (*)   <$> transHighExp a <*> transHighExp b
+transHighExp (HNot a)    = not_  <$> transHighExp a
+transHighExp (HEq a b)   = (#==) <$> transHighExp a <*> transHighExp b
 
-compHighExp :: HighExp a -> CExp a
-compHighExp (HVar v)   = varExp v
-compHighExp (HLit a)   = constExp a
-compHighExp (HAdd a b) = (compHighExp a) + (compHighExp b)
-compHighExp (HMul a b) = (compHighExp a) * (compHighExp b)
-compHighExp (HNot a)   = not_  (compHighExp a)
-compHighExp (HEq a b)  = (compHighExp a) #== (compHighExp b)
+instance HasCBackend CMD HighExp pc where
+  transExp e = do
+    cexp <- transHighExp e
+    return $ evalCExp cexp
 
-transHighExp :: HighExp a -> Prog CMD CExp (CExp a)
-transHighExp (HVar v)   = return (varExp v)
-transHighExp (HLit a)   = return (constExp a)
-transHighExp (HAdd a b) = (+)   <$> transHighExp a <*> transHighExp b
-transHighExp (HMul a b) = (*)   <$> transHighExp a <*> transHighExp b
-transHighExp (HNot a)   = not_  <$> transHighExp a
-transHighExp (HEq a b)  = (#==) <$> transHighExp a <*> transHighExp b
-
-instance HasCBackend CMD HighExp where
-  transExp = transHighExp
-
-powerInput :: Prog CMD (LAB Label HighExp KBot KBot) ()
+powerInput :: Prog CMD (LAB Label HighExp KBot KBot) KBot ()
 powerInput = do
   printf "Please enter two numbers\n"
   printf " > "; m :: (LAB Label HighExp KBot KBot) Int32 <- fget stdin
@@ -100,8 +92,8 @@ powerInput = do
   printf "m*n = %d\n" $
     use m $ \m' -> use n $ \n' -> protect (m'*n')
 
-main = do
-  putDoc $ case (compileLAB "main" powerInput) of
-              [(s,d)] -> d
+main = undefined --do
+--  putDoc $ case (compileLAB "main" powerInput) of
+--              [(s,d)] -> d
               
 --main = runCompiled $ reexpress (transLAB @CMD) powerInput

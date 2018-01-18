@@ -32,19 +32,25 @@ import Data.Functor.Identity
 import Text.PrettyPrint.Mainland
 
 {- EDSL imports -}
-import Control.Monad.Operational.Higher (singleInj, reexpress, Reexpressible, Interp)
+import Control.Monad.Operational.Higher
 import qualified Control.Monad.State as CMS
 import Control.Monad.State.Class
 
 import Language.C.Quote.C
-import Language.C.Monad
+import qualified Language.C.Syntax as C
+
+import Language.C.Monad hiding (inModule)
+import qualified Control.Monad.Reader as R
 import Language.Embedded.Expression
-import Language.Embedded.Imperative hiding (cedecl)
+--import Language.Embedded.Imperative hiding (cedecl, RefCMD, Ref)
 import Language.Embedded.Backend.C
 import Language.Embedded.CExp
-import Language.Embedded.Imperative.CMD (RefCMD (GetRef))
+import Language.Embedded.Traversal
+--import Language.Embedded.Imperative.CMD (RefCMD (GetRef), mkParam, mapFunArg, mapFunArgM)
 
 import Flame.Principals
+import Flame.EDSL.CMD
+import Flame.EDSL.Frontend
 
 data Label exp (l::KPrin) a where
   Label   :: FreePred (Label exp l) a => exp a -> Label exp l a
@@ -54,15 +60,15 @@ data Label exp (l::KPrin) a where
 data LAB (n :: (* -> *) -> KPrin -> * -> *) exp (pc :: KPrin) (l :: KPrin) a where
   Lift  :: FreePred (LAB Label exp pc l) a
         => n exp l a -> LAB n exp pc l a
-  Apply :: (FreePred (LAB Label exp pc l) a, FreePred (LAB Label exp pc l) b, pc ⊑ pc', pc ⊑ pc'')
+  Apply :: (FreePred (LAB Label exp pc l) a {-, FreePred (LAB Label exp pc l) b-}, pc ⊑ pc', pc ⊑ pc'')
         => LAB n exp pc l a -> (n exp l a -> LAB n exp pc' l' b) -> LAB n exp pc'' l' b
   Bind  :: (FreePred (LAB Label exp pc l) a, FreePred (LAB Label exp pc l) b, l ⊑ l', l ⊑ pc')
         => n exp l a -> (exp a -> LAB n exp pc' l' b) -> LAB n exp pc l' b
 
-type Prog instr exp a = Program instr (Param2 exp CType) a
+type Prog instr exp pc a = Program instr (Param3 exp CType pc) a
 
-class    (FreePred exp a, Eq a, Ord a, Show a, CType a) => LABType exp a
-instance (FreePred exp a, Eq a, Ord a, Show a, CType a) => LABType exp a
+class    (FreePred exp a, Eq a, Ord a, Show a, CType a, ToExp a) => LABType exp a
+instance (FreePred exp a, Eq a, Ord a, Show a, CType a, ToExp a) => LABType exp a
 
 instance FreeExp exp => FreeExp (Label exp l)
   where
@@ -76,52 +82,52 @@ instance FreeExp exp => FreeExp (LAB Label exp pc l)
     constExp c = Lift $ (Label $ constExp c)
     varExp   v = Lift $ (Label $ varExp v)
 
-class HasCBackend instr exp where
-  transExp :: exp a -> Prog instr CExp (CExp a)
+class HasCBackend instr exp pc where
+  transExp :: exp a -> Prog instr CExp pc a
 
-transLabel :: (HasCBackend instr exp, FreeExp exp, RefCMD :<: instr)
-           => Label exp l a -> Prog instr CExp (CExp a)
+-- Idea: FLA monad for Program? Running yields a labeled program?
+transLabel :: (HasCBackend instr exp pc, FreeExp exp, RefCMD :<: instr)
+           => Label exp l a -> Prog instr CExp pc a
 transLabel (Label v) = transExp v 
 transLabel (Unlabel lv f) = do 
-  r  <- initRef =<< transLabel lv
+  r  <- initRef =<< (value <$> transLabel lv)
   a' <- singleInj $ GetRef r
   transLabel $ f $ valToExp a'
 
+{-
 transLAB :: forall instr exp pc l a.
-            (HasCBackend instr exp, FreeExp exp, RefCMD :<: instr)
-         => LAB Label exp pc l a -> Prog instr CExp (CExp a)
+            (HasCBackend instr exp pc, FreeExp exp, RefCMD :<: instr)
+         => LAB Label exp pc l a -> Prog instr CExp pc (CExp a)
 transLAB (Lift lv) = transLabel lv 
-transLAB (Bind (lv :: Label exp l' b) f) =  do 
-  r  <- initRef =<< transLabel lv
-  a' <- singleInj $ GetRef r
-  transLAB $ f $ valToExp a'
-transLAB (Apply lv f) =  do 
-  r  <- initRef =<< transLAB lv
-  a' <- singleInj $ GetRef r
-  transLAB $ f $ valToExp a'
+transLAB (Bind lv f) = undefined
+  --do
+  -- insight: this fails b/c CMD pc cannot "go back down". maybe need to scope refs?
+  -- OR: the labeled value never gets explicitly unlabeled.. GetRef seems a little fishy
+  --  r  <- initRef =<< transLabel lv
+  --  a' <- singleInj $ GetRef r
+  --  transLAB $ f $ valToExp a'
+transLAB (Apply lv f) = undefined
+--transLAB (Apply lv f) =  do 
+--  r  <- initRef =<< transLAB lv
+--  a' <- singleInj $ GetRef r
+--  transLAB $ f $ valToExp a'
+-}
 
---compileLAB :: forall instr exp pc l a.
---              ( HasCBackend instr exp
---              , Reexpressible instr instr ()
---              , Interp instr CGen (Param2 CExp CType)
---              , FreeExp exp, RefCMD :<: instr
---              )
---           => Prog instr (LAB Label exp pc l) a -> String
---compileLAB = (compile :: Prog instr CExp a -> String) . reexpress transLAB
-
+{-
 compileLAB :: forall instr exp pc l a.
-              ( HasCBackend instr exp
+              ( HasCBackend instr exp pc
               , Reexpressible instr instr ()
-              , Interp instr CGen (Param2 CExp CType)
+              , Interp instr CGen (Param3 CExp CType pc)
               , FreeExp exp, RefCMD :<: instr
               )
-           => String -> Prog instr (LAB Label exp pc l) a -> [(String,Doc)]
-compileLAB s = prettyCGen . wrapFunc s . (interpret :: Prog instr CExp a -> CGen a) . reexpress @instr transLAB
+           => String -> Prog instr (LAB Label exp pc l) pc a -> [(String,Doc)]
+compileLAB s = prettyCGen . wrapFunc s . (interpret :: Prog instr CExp pc a -> CGen a) . reexpress @instr transLAB
 
 wrapFunc s prog = do
     (_,uvs,params,items) <- inNewFunction $ prog >> addStm [cstm| return 0; |]
     setUsedVars s uvs
     addGlobal [cedecl| int $id:s($params:params){ $items:items }|]
+-}
 
 class Labeled (n :: (* -> *) -> KPrin -> * -> *) exp where
   label   :: LABType exp a => exp a -> n exp l a
@@ -166,3 +172,52 @@ instance IFC LAB Label exp where
   lift = Lift
   apply = Apply
   bind = Bind
+
+newtype LCode n instr exp pc l a = LCode { code :: CGen a }
+
+compile_lift :: forall instr exp pc l a.
+             ( HasCBackend instr exp pc
+             , FreeExp exp
+             , HFunctor instr
+             , Interp instr CGen (Param3 CExp CType pc)
+             , RefCMD :<: instr
+             , pc ⊑ l
+             ) => Label exp l a -> LCode Label instr CExp pc l a
+compile_lift v = LCode $ interpret (transLabel v :: Prog instr CExp pc a)
+
+compile_apply ::( HasCBackend instr exp pc
+             , LABType exp a
+             , FreeExp exp
+             , HFunctor instr
+             , Interp instr CGen (Param3 CExp CType pc)
+             , RefCMD :<: instr
+             , pc ⊑ pc', pc ⊑ pc''
+             ) => LCode Label instr CExp pc l a -> (Label exp l a -> LCode Label instr CExp pc' l' b) -> LCode Label instr CExp pc'' l' b
+compile_apply (LCode v) f = LCode $ do
+  (a, bodyc) <- inNewBlock $ do
+                  vexp  <- v
+                  x <- freshVar (Proxy :: Proxy CType)
+                  addStm  [cstm| $id:x = $vexp; |]
+                  case (f $ valToExp x) of
+                    LCode res -> res
+  addStm [cstm|{ $items:bodyc }|]
+  return a
+
+compile_bind :: forall instr exp pc pc' l l' a b.
+             ( HasCBackend instr exp pc
+             , LABType exp a
+             , FreeExp exp
+             , HFunctor instr
+             , Interp instr CGen (Param3 CExp CType pc)
+             , RefCMD :<: instr
+             , l ⊑ l', l ⊑ pc
+             ) => Label exp l a -> (exp a -> LCode Label instr CExp pc l' b) -> LCode Label instr CExp pc' l' b
+compile_bind v f = LCode $ do
+  (a, bodyc) <- inNewBlock $ do
+                  vexp  <- interpret (transLabel v :: Prog instr CExp pc a)
+                  x <- freshVar (Proxy :: Proxy CType)
+                  addStm  [cstm| $id:x = $vexp; |]
+                  case (f $ valToExp x) of
+                    LCode res -> res
+  addStm [cstm|{ $items:bodyc }|]
+  return a

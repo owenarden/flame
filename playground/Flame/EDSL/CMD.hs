@@ -48,6 +48,7 @@ module Flame.EDSL.CMD
   , mapPrintfArgM
   , Formattable (..)
   , FileCMD (..)
+  , ScopeCMD (..)
   ) where
 
 import Control.Monad.Reader
@@ -85,6 +86,35 @@ import Language.Embedded.Backend.C.Expression
 import Flame.Principals
 
 --------------------------------------------------------------------------------
+-- * Scope
+--------------------------------------------------------------------------------
+-- | Commands for scoping
+data ScopeCMD fs a
+  where
+    InScope :: (pred a) => prog a -> ScopeCMD (Param4 prog exp pred pc) a
+  deriving Typeable
+
+instance HFunctor ScopeCMD
+  where
+    hfmap f (InScope p)    = InScope (f p)
+
+instance HBifunctor ScopeCMD
+  where
+    hbimap f g (InScope p) = InScope (f p)
+
+instance (ScopeCMD :<: instr) => Reexpressible ScopeCMD instr env
+  where
+    reexpressInstrEnv reexp (InScope p) = do
+        ReaderT $ \env ->
+          singleInj $ InScope (runReaderT p env)
+
+instance DryInterp ScopeCMD
+  where
+    dryInterp (InScope x)   = do
+                                x' <- x 
+                                return x'
+
+--------------------------------------------------------------------------------
 -- * References
 --------------------------------------------------------------------------------
 
@@ -111,12 +141,13 @@ readIFCRef ref = unsafeProtect $ do
                    r <- readIORef (unsafeUnwrap ref)
                    return . label $ r
 -}
+
 -- | Commands for mutable references
 data RefCMD fs a
   where
     NewRef  :: (pred a, pc ⊑ l) => String -> RefCMD (Param4 prog exp pred pc) (Ref l a)
-    InitRef :: (pred a, pc ⊑ l) => String -> exp a -> RefCMD (Param4 prog exp pred pc) (Ref l a)
-    GetRef  :: (pred a, l ⊑ pc) => Ref l a -> RefCMD (Param4 prog exp pred pc) (Val a)
+    InitRef :: (pred a {-, pc ⊑ l-}) => String -> exp a -> RefCMD (Param4 prog exp pred pc) (Ref l a)
+    GetRef  :: (pred a {-, l ⊑ pc-}) => Ref l a -> RefCMD (Param4 prog exp pred pc) (Val a)
     SetRef  :: (pred a, pc ⊑ l) => Ref l a -> exp a -> RefCMD (Param4 prog exp pred pc) ()
       -- `pred a` for `SetRef` is not needed for code generation, but it can be
       -- useful when interpreting with a dynamically typed store. It can then be
@@ -124,9 +155,7 @@ data RefCMD fs a
     UnsafeFreezeRef :: (pred a, l ⊑ pc) => Ref l a -> RefCMD (Param4 prog exp pred pc) (Val a)
       -- Like `GetRef` but without using a fresh variable for the result. This
       -- is only safe if the reference is never written to after the freezing.
-#if  __GLASGOW_HASKELL__>=708
   deriving Typeable
-#endif
 
 instance HFunctor RefCMD
   where
@@ -159,8 +188,6 @@ instance DryInterp RefCMD
     dryInterp (GetRef _)       = liftM ValComp $ freshStr "v"
     dryInterp (SetRef _ _)     = return ()
     dryInterp (UnsafeFreezeRef (RefComp v)) = return $ ValComp v
-
-
 
 --------------------------------------------------------------------------------
 -- * Arrays (TODO)
