@@ -48,7 +48,6 @@ module Flame.EDSL.CMD
   , mapPrintfArgM
   , Formattable (..)
   , FileCMD (..)
-  , ScopeCMD (..)
   ) where
 
 import Control.Monad.Reader
@@ -84,35 +83,6 @@ import Language.Embedded.Backend.C.Expression
 
 
 import Flame.Principals
-
---------------------------------------------------------------------------------
--- * Scope
---------------------------------------------------------------------------------
--- | Commands for scoping
-data ScopeCMD fs a
-  where
-    InScope :: (pred a) => prog a -> ScopeCMD (Param4 prog exp pred pc) a
-  deriving Typeable
-
-instance HFunctor ScopeCMD
-  where
-    hfmap f (InScope p)    = InScope (f p)
-
-instance HBifunctor ScopeCMD
-  where
-    hbimap f g (InScope p) = InScope (f p)
-
-instance (ScopeCMD :<: instr) => Reexpressible ScopeCMD instr env
-  where
-    reexpressInstrEnv reexp (InScope p) = do
-        ReaderT $ \env ->
-          singleInj $ InScope (runReaderT p env)
-
-instance DryInterp ScopeCMD
-  where
-    dryInterp (InScope x)   = do
-                                x' <- x 
-                                return x'
 
 --------------------------------------------------------------------------------
 -- * References
@@ -351,7 +321,7 @@ instance Formattable Double
 data FileCMD fs a
   where
     FOpen   :: (pc ⊑ l) => {- DPrin l -> -} FilePath -> IOMode -> FileCMD (Param4 prog exp pred pc) (Handle l)
-    FClose  :: (pc ⊑ l) => Handle l             -> FileCMD (Param4 prog exp pred pc) ()
+    FClose  :: (pc ⊑ l) => Handle l -> FileCMD (Param4 prog exp pred pc) ()
     FEof    :: (l ⊑ pc) => Handle l -> FileCMD (Param4 prog exp pred pc) (Val Bool)
     FPrintf :: (pc ⊑ l) => Handle l -> String -> [PrintfArg exp] -> FileCMD (Param4 prog exp pred pc) ()
     FGet    :: (pred a, Formattable a, l ⊑ pc) => Handle l  -> FileCMD (Param4 prog exp pred pc) (Val a)

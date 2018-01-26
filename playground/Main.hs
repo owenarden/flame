@@ -25,10 +25,9 @@ import Language.Embedded.Backend.C
 import Language.Embedded.CExp
 import Language.Embedded.Signature
 import Language.C.Monad 
---import Language.Embedded.Imperative.CMD (RefCMD (GetRef))
+import Language.Embedded.Imperative.CMD
 
 import Flame.EDSL.IFC
-import Flame.EDSL.CMD
 import Flame.EDSL.Frontend
 import Flame.Principals
 import Flame.Runtime.Principals
@@ -37,6 +36,7 @@ class    (Eq a, Ord a, Show a, CType a) => Type a
 instance (Eq a, Ord a, Show a, CType a) => Type a
 
 data HighExp a where
+  HUnit :: HighExp ()
   HVar  :: Type a => VarId -> HighExp a
   HLit  :: Type a => a -> HighExp a
 
@@ -69,7 +69,7 @@ type CMD
     :+: ControlCMD  -- Control structures
     :+: FileCMD     -- Input/output
 
-transHighExp :: forall exp pc a. HighExp a -> Prog CMD CExp pc (CExp a)
+transHighExp :: forall exp pc l a. HighExp a -> Program CMD (Param2 CExp CType) (CExp a)
 transHighExp (HVar v)    = return (varExp v)
 transHighExp (HLit a)    = return (constExp a)
 transHighExp (HAdd a b)  = (+)   <$> transHighExp a <*> transHighExp b
@@ -77,23 +77,27 @@ transHighExp (HMul a b)  = (*)   <$> transHighExp a <*> transHighExp b
 transHighExp (HNot a)    = not_  <$> transHighExp a
 transHighExp (HEq a b)   = (#==) <$> transHighExp a <*> transHighExp b
 
-instance HasCBackend CMD HighExp pc where
-  transExp e = do
+instance HasBackend HighExp CExp CMD CType where
+  translateExp e = do
     cexp <- transHighExp e
-    return $ evalCExp cexp
+    return cexp
 
-powerInput :: Prog CMD (LAB Label HighExp KBot KBot) KBot ()
-powerInput = do
+powerInput :: LABProgram HighExp CMD CType KBot KBot Int32 
+powerInput = LABP $ do
   printf "Please enter two numbers\n"
-  printf " > "; m :: (LAB Label HighExp KBot KBot) Int32 <- fget stdin
+  printf " > "; m :: HighExp Int32 <- fget stdin
   printf "m: %d\n" m
-  printf " > "; n :: (LAB Label HighExp KBot KBot) Int32 <- fget stdin
+  printf " > "; n :: HighExp Int32 <- fget stdin
   printf "n: %d\n" n
-  printf "m*n = %d\n" $
-    use m $ \m' -> use n $ \n' -> protect (m'*n')
+  printf "m*n = %d\n" $ (m*n)
+  return $ Label $ HLit 0
 
-main = undefined --do
---  putDoc $ case (compileLAB "main" powerInput) of
---              [(s,d)] -> d
+powerInput2 :: LABProgram HighExp CMD CType KBot KBot Int32 
+powerInput2 = lab_apply (LABP $ (LUnit <$> printf "Please enter two numbers\n")) $ \_ ->
+              lab_lift $ Label $ HLit 0
+
+main = do
+  putDoc $ case (compileLAB "main" powerInput2) of
+              [(s,d)] -> d
               
 --main = runCompiled $ reexpress (transLAB @CMD) powerInput
