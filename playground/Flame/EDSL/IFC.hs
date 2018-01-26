@@ -54,10 +54,14 @@ data Label (exp :: * -> *) (l::KPrin) a where
   Label   :: exp a -> Label exp l a
   Unlabel :: (l ⊑ l') => Label exp l a -> (exp a -> Label exp l' b) -> Label exp l' b
 
+type family BindType (exp :: * -> *) a :: * where
+  BindType exp a = exp a
+  BindType exp a = a
+
 data LABType (exp :: * -> *) (l::KPrin) a where
-  LUnit :: LABType exp l a 
-  LVal  :: a -> LABType exp l a
+  LUnit :: LABType exp l () 
   LExp  :: Label exp l a -> LABType exp l a 
+  LExt  :: BindType exp a -> LABType exp l a
 
 runLabel :: Label exp l a -> exp a
 runLabel (Label v) = v
@@ -65,34 +69,38 @@ runLabel (Unlabel lv f) = runLabel (f $ runLabel lv)
 
 newtype LABProgram exp instr pred pc l a = LAB { program :: Program instr (Param2 exp pred) (LABType exp l a) } 
 
-lab_seq :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l ()
-        -> LABProgram exp instr pred pc' l' a
-        -> LABProgram exp instr pred pc'' l' a
-lab_seq lfst lsnd = LAB $ do
+seq :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l ()
+    -> LABProgram exp instr pred pc' l' a
+    -> LABProgram exp instr pred pc'' l' a
+seq lfst lsnd = LAB $ do
   program lfst
   program lsnd
 
-lab_apply :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l a
-          -> (LABType exp l a -> LABProgram exp instr pred pc' l' b)
-          -> LABProgram exp instr pred pc'' l' b
-lab_apply (LAB prog) f = LAB $ do
-                                 lv <- prog
-                                 case f lv of
-                                   LAB p -> p
+apply :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l a
+      -> (LABType exp l a -> LABProgram exp instr pred pc' l' b)
+      -> LABProgram exp instr pred pc'' l' b
+apply (LAB prog) f = LAB $ do
+                             lv <- prog
+                             case f lv of
+                               LAB p -> p
 
-lab_bind ::  (l ⊑ l', l ⊑ pc') => LABProgram exp instr pred pc l a
-         -> (exp a -> LABProgram exp instr pred pc' l' b)
-         -> LABProgram exp instr pred pc l' b
-lab_bind (LAB prog) f = LAB $ do
-                                 x <- prog
-                                 case x of 
-                                   LUnit  -> error "Result of bound expression is LUnit"
-                                   LExp v -> do
-                                     case f (runLabel v) of
-                                       LAB p -> p
 
-lab_lift :: Label exp l a -> LABProgram exp instr pred pc l a
-lab_lift = LAB . return . LExp
+bind ::  (l ⊑ l', l ⊑ pc') => LABProgram exp instr pred pc l a
+     -> (BindType exp a -> LABProgram exp instr pred pc' l' b)
+     -> LABProgram exp instr pred pc l' b
+bind (LAB prog) f = LAB $ do
+                            x <- prog
+                            case x of 
+                              LUnit  -> error "Result of bound expression is LUnit"
+                              LExt v -> do
+                                case f v of
+                                  LAB p -> p
+                              LExp v -> do
+                                case f (runLabel v) of
+                                  LAB p -> p
+
+lift :: Label exp l a -> LABProgram exp instr pred pc l a
+lift = LAB . return . LExp
 
 class HasBackend exp1 exp2 instr pred where
   translateExp :: exp1 a -> Program instr (Param2 exp2 pred) (exp2 a)
@@ -126,54 +134,26 @@ wrapFunc s prog = do
     setUsedVars s uvs
     addGlobal [cedecl| int $id:s($params:params){ $items:items }|]
 
-{-
+--relabel :: (l ⊑ l') => n exp l a -> n exp l' a
+--relabel a = unlabel a label 
+--
+--protect :: (pc ⊑ l) => exp a -> LABProgram exp instr pred pc l a
+--protect = lift . label
 
-class Labeled (n :: (* -> *) -> KPrin -> * -> *) exp where
-  label   :: LABType exp a => exp a -> n exp l a
-  unlabel :: (LABType exp a, LABType exp b, l ⊑ l') => n exp l a -> (exp a -> n exp l' b) -> n exp l' b
-  relabel :: (LABType exp a, l ⊑ l') => n exp l a -> n exp l' a
-  relabel a = unlabel a label 
-
-instance Labeled Label exp where
-  label   = Label
-  unlabel = Unlabel
-
-class Labeled n exp => IFC (m :: ((* -> *) -> KPrin -> * -> *)
-                                   -> (* -> *) -> KPrin -> KPrin -> * -> *)
-                                 n exp where
-  lift   :: (LABType exp a, pc ⊑ l) => n exp l a -> m n exp pc l a
-
-  apply  :: (LABType exp a, LABType exp b, pc ⊑ pc', pc ⊑ pc'')
-         => m n exp pc l a -> (n exp l a -> m n exp pc' l' b) -> m n exp pc'' l' b
-
-  bind   :: (LABType exp a, LABType exp b, l ⊑ l', l ⊑ pc)
-         => n exp l a -> (exp a -> m n exp pc l' b) -> m n exp pc' l' b
-
-  protect :: (LABType exp a, pc ⊑ l) => exp a -> m n exp pc l a
-  protect = lift . label
-
-  use :: forall l l' pc pc' pc'' a b.
-         (LABType exp a, LABType exp b, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
-      => m n exp pc l a -> (exp a -> m n exp pc' l' b) -> m n exp pc'' l' b
-  use x f = apply x $ \x' -> (bind x' f :: m n exp pc' l' b)
- 
-  reprotect :: forall l l' pc pc' a.
-               (LABType exp a, l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l')
-            => m n exp pc l a -> m n exp pc' l' a 
-  reprotect x = use x (protect :: exp a -> m n exp (pc ⊔ l) l' a)
-
-  ifmap :: forall l l' pc pc' a b.
-           (LABType exp a, LABType exp b, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l')
-        => (exp a -> exp b) -> m n exp pc l a -> m n exp pc' l' b
-  ifmap f x = use x (\x' -> protect (f x') :: m n exp (pc ⊔ l) l' b)
-
--}
---instance IFC LAB Label exp where
---  lift = Lift
---  apply = Apply
---  bind = Bind
--- prog_apply :: (pc ⊑ pc', pc ⊑ pc'') => Prog instr (Label exp l) pc a -> (Label exp l a -> Prog instr (Label exp l') pc' b) -> Prog instr (Label exp l') pc'' b
--- prog_bind  :: (l ⊑ l', l ⊑ pc) => Label exp l a -> (exp a -> Prog instr (Label exp l') pc b) -> Prog instr (Label exp l') pc' l' b
+--use :: forall exp instr pred l l' pc pc' pc'' a b.
+--       (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
+--    => LABProgram exp instr pred pc l a -> (exp a -> LABProgram exp instr pred pc' l' b) -> LABProgram exp instr pred pc'' l' b
+--use x f = apply x $ \x' -> (bind x' f :: LABProgram exp instr pred pc' l' b)
+-- 
+--reprotect :: forall exp instr pred l l' pc pc' a.
+--             (l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l')
+--          => LABProgram exp instr pred pc l a -> LABProgram exp instr pred pc' l' a 
+--reprotect x = use x (protect :: exp a -> LABProgram exp instr pred (pc ⊔ l) l' a)
+--
+--ifmap :: forall exp instr pred l l' pc pc' a b.
+--         (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l')
+--      => (exp a -> exp b) -> LABProgram exp instr pred pc l a -> LABProgram exp instr pred pc' l' b
+--ifmap f x = use x (\x' -> protect (f x') :: LABProgram exp instr pred (pc ⊔ l) l' b)
 
 {-
 newtype LCode n instr exp pc l a = LCode { code :: CGen a }

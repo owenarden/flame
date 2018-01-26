@@ -95,29 +95,14 @@ setRef r = singleInj . SetRef r
 -- | Modify the contents of reference
 modifyRef :: (pred a, pc ⊑ l, l ⊑ pc, FreeExp exp, FreePred exp a, RefCMD :<: instr) =>
     Ref l a -> (exp a -> exp a) -> LABProgram exp instr pred pc l' ()
-modifyRef r f = setRef r . f =<< unsafeFreezeRef r
+modifyRef r f = reprotect $ setRef r . f =<< unsafeFreezeRef r
 
 -- | Freeze the contents of reference (only safe if the reference is not updated
 -- as long as the resulting value is alive)
 unsafeFreezeRef
     :: (pred a, l ⊑ pc, FreeExp exp, FreePred exp a, RefCMD :<: instr)
     => Ref l a -> LABProgram exp instr pred pc (pc ⊔ l) (exp a)
-unsafeFreezeRef = fmap valToExp . singleInj . UnsafeFreezeRef
-
--- | Read the value of a reference without returning in the monad
---
--- WARNING: Don't use this function unless you really know what you are doing.
--- It is almost always better to use 'unsafeFreezeRef' instead.
---
--- 'veryUnsafeFreezeRef' behaves predictably when doing code generation, but it
--- can give strange results when running in 'IO', as explained here:
---
--- <http://fun-discoveries.blogspot.se/2015/09/strictness-can-fix-non-termination.html>
-veryUnsafeFreezeRef :: (FreeExp exp, FreePred exp a) => Ref l a -> exp a
-veryUnsafeFreezeRef (RefRun r)  = constExp $! unsafePerformIO $! readIORef r
-veryUnsafeFreezeRef (RefComp v) = varExp v
-
-
+unsafeFreezeRef = LAB . fmap (LVal . valToExp) . singleInj . UnsafeFreezeRef . unRef
 
 --------------------------------------------------------------------------------
 -- * Arrays
@@ -223,7 +208,9 @@ fclose h = LAB $ do
 -- | Check for end of file
 feof :: (FreeExp exp, FreePred exp Bool, FileCMD :<: instr) =>
     Handle l -> LABProgram exp instr pred pc (pc ⊔ l) Bool
-feof = LAB . fmap valToExp . singleInj . FEof . unHandle
+feof h = LAB $ do
+  b <- singleInj $ FEof $ unHandle h
+  return $ LExp $ Label $ valToExp b
 
 class PrintfType l r
   where
@@ -255,7 +242,7 @@ fput :: forall instr exp pred a m pc l l'
     -> String  -- ^ Prefix
     -> exp a   -- ^ Expression to print
     -> String  -- ^ Suffix
-    -> LABProgram exp instr pred pc l' ()
+    -> LABProgram exp instr pred pc l ()
 fput hdl prefix a suffix =
     fprintf hdl (prefix ++ formatSpecPrint (Proxy :: Proxy a) ++ suffix) a
 
@@ -268,8 +255,10 @@ fget
        , FileCMD :<: instr
        , l ⊑ pc
        )
-    => Handle l -> LABProgram exp instr pred pc (pc ⊔ l) (exp a)
-fget = LAB . fmap valToExp . singleInj . FGet . unHandle
+    => Handle l -> LABProgram exp instr pred pc (pc ⊔ l) a
+fget h = LAB $ do
+           v <- singleInj $ FGet $ unHandle h
+           return $ LExp $ Label $ valToExp v
 
 -- | Print to @stdout@. Accepts a variable number of arguments.
 printf :: PrintfType KBot r => String -> r
