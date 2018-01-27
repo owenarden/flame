@@ -50,57 +50,37 @@ import Language.Embedded.Imperative.CMD (RefCMD (GetRef), mkParam, mapFunArg, ma
 
 import Flame.Principals
 
-data Label (exp :: * -> *) (l::KPrin) a where
-  Label   :: exp a -> Label exp l a
-  Unlabel :: (l ⊑ l') => Label exp l a -> (exp a -> Label exp l' b) -> Label exp l' b
+data Label (l::KPrin) a where
+  Label   :: a -> Label l a
+  Unlabel :: (l ⊑ l') => Label l a -> (a -> Label l' b) -> Label l' b
 
-type family BindType (exp :: * -> *) a :: * where
-  BindType exp a = exp a
-  BindType exp a = a
-
-data LABType (exp :: * -> *) (l::KPrin) a where
-  LUnit :: LABType exp l () 
-  LExp  :: Label exp l a -> LABType exp l a 
-  LExt  :: BindType exp a -> LABType exp l a
-
-runLabel :: Label exp l a -> exp a
+runLabel :: Label l a -> a
 runLabel (Label v) = v
 runLabel (Unlabel lv f) = runLabel (f $ runLabel lv)
 
-newtype LABProgram exp instr pred pc l a = LAB { program :: Program instr (Param2 exp pred) (LABType exp l a) } 
+newtype LABProgram exp instr pred pc l a = LAB { program :: Program instr (Param2 exp pred) a }
 
-seq :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l ()
-    -> LABProgram exp instr pred pc' l' a
-    -> LABProgram exp instr pred pc'' l' a
-seq lfst lsnd = LAB $ do
-  program lfst
-  program lsnd
+lift :: Label l a -> LABProgram exp instr pred pc l a
+lift = LAB . return . runLabel
+
+seq :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l a
+    -> LABProgram exp instr pred pc' l' b
+    -> LABProgram exp instr pred pc'' l' b
+seq (LAB p) (LAB q) = LAB $ p >> q
 
 apply :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l a
-      -> (LABType exp l a -> LABProgram exp instr pred pc' l' b)
+      -> (Label l a -> LABProgram exp instr pred pc' l' b)
       -> LABProgram exp instr pred pc'' l' b
 apply (LAB prog) f = LAB $ do
                              lv <- prog
-                             case f lv of
+                             case f (Label lv) of
                                LAB p -> p
 
-
-bind ::  (l ⊑ l', l ⊑ pc') => LABProgram exp instr pred pc l a
-     -> (BindType exp a -> LABProgram exp instr pred pc' l' b)
+bind ::  (l ⊑ l', l ⊑ pc') => Label l a
+     -> (a -> LABProgram exp instr pred pc' l' b)
      -> LABProgram exp instr pred pc l' b
-bind (LAB prog) f = LAB $ do
-                            x <- prog
-                            case x of 
-                              LUnit  -> error "Result of bound expression is LUnit"
-                              LExt v -> do
-                                case f v of
-                                  LAB p -> p
-                              LExp v -> do
-                                case f (runLabel v) of
-                                  LAB p -> p
-
-lift :: Label exp l a -> LABProgram exp instr pred pc l a
-lift = LAB . return . LExp
+bind lv f = LAB $ case f $ runLabel lv of
+                    LAB p -> p
 
 class HasBackend exp1 exp2 instr pred where
   translateExp :: exp1 a -> Program instr (Param2 exp2 pred) (exp2 a)
@@ -112,13 +92,12 @@ reexpressLAB :: forall instr1 instr2 exp1 exp2 pred pc l a b .
               )
              => (forall b . exp1 b -> Program instr2 (Param2 exp2 pred) (exp2 b))
              -> LABProgram exp1 instr1 pred pc l a -> LABProgram exp2 instr2 pred pc l a
-reexpressLAB f p = LAB $ do
-                      x <- reexpress @instr1 @instr2 @_ @exp1 @exp2 f $ program p
-                      case x of 
-                        LUnit  -> return LUnit
-                        LExp v -> do
-                          y <- translateExp $ runLabel v
-                          return $ LExp $ Label y
+reexpressLAB f (LAB p) = LAB $ reexpress @instr1 @instr2 @_ @exp1 @exp2 f p
+
+wrapFunc s prog = do
+    (_,uvs,params,items) <- inNewFunction $ prog >> addStm [cstm| return 0; |]
+    setUsedVars s uvs
+    addGlobal [cedecl| int $id:s($params:params){ $items:items }|]
 
 compileLAB :: forall instr exp pred pc l a.
               ( HasBackend exp CExp instr pred 
@@ -129,121 +108,23 @@ compileLAB :: forall instr exp pred pc l a.
            => String -> LABProgram exp instr pred pc l a -> [(String,Doc)]
 compileLAB s p = prettyCGen . wrapFunc s $ (interpret . program) (reexpressLAB @instr @instr @exp @CExp translateExp p)
 
-wrapFunc s prog = do
-    (_,uvs,params,items) <- inNewFunction $ prog >> addStm [cstm| return 0; |]
-    setUsedVars s uvs
-    addGlobal [cedecl| int $id:s($params:params){ $items:items }|]
+relabel :: (l ⊑ l') => Label l a -> Label l' a
+relabel a = Unlabel a Label 
 
---relabel :: (l ⊑ l') => n exp l a -> n exp l' a
---relabel a = unlabel a label 
---
---protect :: (pc ⊑ l) => exp a -> LABProgram exp instr pred pc l a
---protect = lift . label
+protect :: (pc ⊑ l) => a -> LABProgram exp instr pred pc l a
+protect = lift . Label
 
---use :: forall exp instr pred l l' pc pc' pc'' a b.
---       (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
---    => LABProgram exp instr pred pc l a -> (exp a -> LABProgram exp instr pred pc' l' b) -> LABProgram exp instr pred pc'' l' b
---use x f = apply x $ \x' -> (bind x' f :: LABProgram exp instr pred pc' l' b)
--- 
---reprotect :: forall exp instr pred l l' pc pc' a.
---             (l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l')
---          => LABProgram exp instr pred pc l a -> LABProgram exp instr pred pc' l' a 
---reprotect x = use x (protect :: exp a -> LABProgram exp instr pred (pc ⊔ l) l' a)
---
---ifmap :: forall exp instr pred l l' pc pc' a b.
---         (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l')
---      => (exp a -> exp b) -> LABProgram exp instr pred pc l a -> LABProgram exp instr pred pc' l' b
---ifmap f x = use x (\x' -> protect (f x') :: LABProgram exp instr pred (pc ⊔ l) l' b)
+use :: forall exp instr pred l l' pc pc' pc'' a b.
+       (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
+    => LABProgram exp instr pred pc l a -> (a -> LABProgram exp instr pred pc' l' b) -> LABProgram exp instr pred pc'' l' b
+use x f = apply x $ \x' -> (bind x' f :: LABProgram exp instr pred pc' l' b)
+ 
+reprotect :: forall exp instr pred l l' pc pc' a.
+             (l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l')
+          => LABProgram exp instr pred pc l a -> LABProgram exp instr pred pc' l' a 
+reprotect x = use x (protect :: a -> LABProgram exp instr pred (pc ⊔ l) l' a)
 
-{-
-newtype LCode n instr exp pc l a = LCode { code :: CGen a }
--- TODO?: rewrite these functions to be in Prog instr CExp instead of LCode
-interp_lift :: forall instr exp pc l a.
-             ( HasCBackend instr exp
-             , FreeExp exp
-             , HFunctor instr
-             , Interp instr CGen (Param3 CExp CType pc)
-             , RefCMD :<: instr
-             , pc ⊑ l
-             ) => Label exp l a -> LCode Label instr CExp pc l a
-interp_lift v = LCode $ interpret (transLabel v :: Prog instr CExp pc a)
-
-interp_apply ::( HasCBackend instr exp
-             , LABType exp a
-             , FreeExp exp
-             , HFunctor instr
-             , Interp instr CGen (Param3 CExp CType pc)
-             , RefCMD :<: instr
-             , pc ⊑ pc', pc ⊑ pc''
-             ) => LCode Label instr CExp pc l a -> (Label exp l a -> LCode Label instr CExp pc' l' b) -> LCode Label instr CExp pc'' l' b
-interp_apply (LCode v) f = LCode $ do
-  (a, bodyc) <- inNewBlock $ do
-                  vexp  <- v
-                  x <- freshVar (Proxy :: Proxy CType)
-                  addStm  [cstm| $id:x = $vexp; |]
-                  case (f $ valToExp x) of
-                    LCode res -> res
-  addStm [cstm|{ $items:bodyc }|]
-  return a
-
-interp_bind :: forall instr exp pc pc' l l' a b.
-             ( HasCBackend instr exp
-             , LABType exp a
-             , FreeExp exp
-             , HFunctor instr
-             , Interp instr CGen (Param3 CExp CType pc)
-             , RefCMD :<: instr
-             , l ⊑ l', l ⊑ pc
-             ) => Label exp l a -> (exp a -> LCode Label instr CExp pc l' b) -> LCode Label instr CExp pc' l' b
-interp_bind v f = LCode $ do
-  (a, bodyc) <- inNewBlock $ do
-                  vexp  <- interpret (transLabel v :: Prog instr CExp pc a)
-                  x <- freshVar (Proxy :: Proxy CType)
-                  addStm  [cstm| $id:x = $vexp; |]
-                  case (f $ valToExp x) of
-                    LCode res -> res
-  addStm [cstm|{ $items:bodyc }|]
-  return a
-
-interpLAB :: forall instr exp pc pc' l a.
-            ( HasCBackend instr exp
-            , FreeExp exp
-            , RefCMD :<: instr
-            , FreeExp exp
-            , HFunctor instr
-            , Interp instr CGen (Param3 CExp CType pc)
-            , RefCMD :<: instr
-            )
-         => LAB Label exp pc l a -> LCode Label instr CExp pc l a
-interpLAB (Lift lv)    = interp_lift lv
-interpLAB (Apply lv f) = LCode $ do
-  (a, bodyc) <- inNewBlock $ do
-                  vexp  <- code $ interpLAB @instr lv
-                  x <- freshVar (Proxy :: Proxy CType)
-                  addStm  [cstm| $id:x = $vexp; |]
-                  code $ interpLAB @instr (f $ valToExp x)
-  addStm [cstm|{ $items:bodyc }|]
-  return a
-interpLAB (Bind lv f) = LCode $ do
-  (a, bodyc) <- inNewBlock $ do
-                  vexp  <- interpret (transLabel @instr @_ @_ @_ @pc lv)
-                  x <- freshVar (Proxy :: Proxy CType)
-                  addStm  [cstm| $id:x = $vexp; |]
-                  code $ interpLAB @instr (f $ valToExp x)
-  addStm [cstm|{ $items:bodyc }|]
-  return a
-
-compileLAB :: forall instr exp pc l a.
-              ( HasCBackend instr exp 
-              , Reexpressible instr instr ()
-              , Interp instr CGen (Param3 CExp CType pc)
-              , FreeExp exp, RefCMD :<: instr
-              )
-           => String -> Prog instr (LAB Label exp pc l) pc a -> [(String,Doc)]
-compileLAB s = prettyCGen . wrapFunc s . interpretWithMonad (code . interpLAB @instr)
-
-wrapFunc s prog = do
-    (_,uvs,params,items) <- inNewFunction $ prog >> addStm [cstm| return 0; |]
-    setUsedVars s uvs
-    addGlobal [cedecl| int $id:s($params:params){ $items:items }|]
-    -}
+ifmap :: forall exp instr pred l l' pc pc' a b.
+         (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l')
+      => (a -> b) -> LABProgram exp instr pred pc l a -> LABProgram exp instr pred pc' l' b
+ifmap f x = use x (\x' -> protect (f x') :: LABProgram exp instr pred (pc ⊔ l) l' b)

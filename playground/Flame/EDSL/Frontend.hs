@@ -22,6 +22,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 
@@ -64,7 +65,7 @@ newRef = newNamedRef "r"
 newNamedRef :: (pred a, pc ⊑ l, RefCMD :<: instr)
     => String  -- ^ Base name
     -> LABProgram exp instr pred pc pc (Ref l a)
-newNamedRef = singleInj . NewRef
+newNamedRef s = LAB $ LABRef <$> (singleInj $ NewRef s)
 
 -- | Create an initialized reference
 initRef :: (pred a, pc ⊑ l, RefCMD :<: instr)
@@ -80,29 +81,31 @@ initNamedRef :: (pred a, pc ⊑ l, RefCMD :<: instr)
     => String  -- ^ Base name
     -> exp a   -- ^ Initial value
     -> LABProgram exp instr pred pc pc (Ref l a)
-initNamedRef base a = singleInj (InitRef base a)
+initNamedRef base a = LAB $ LABRef <$> (singleInj (InitRef base a))
 
 -- | Get the contents of a reference
 getRef :: (pred a, FreeExp exp, FreePred exp a, RefCMD :<: instr) =>
-    Ref l a -> LABProgram exp instr pred pc (pc ⊔ l) a 
-getRef = fmap valToExp . singleInj . GetRef
+    Ref l a -> LABProgram exp instr pred pc (pc ⊔ l) (exp a) 
+getRef = LAB. fmap valToExp . singleInj . GetRef . unRef
 
 -- | Set the contents of a reference
 setRef :: (pred a, pc ⊑ l, RefCMD :<: instr) =>
     Ref l a -> exp a -> LABProgram exp instr pred pc l' ()
-setRef r = singleInj . SetRef r
+setRef r = LAB . singleInj . SetRef (unRef r)
 
 -- | Modify the contents of reference
-modifyRef :: (pred a, pc ⊑ l, l ⊑ pc, FreeExp exp, FreePred exp a, RefCMD :<: instr) =>
-    Ref l a -> (exp a -> exp a) -> LABProgram exp instr pred pc l' ()
-modifyRef r f = reprotect $ setRef r . f =<< unsafeFreezeRef r
+modifyRef :: forall exp instr pred pc l l' a.
+          (pred a, pc ⊑ l, l ⊑ pc, FreeExp exp, FreePred exp a, RefCMD :<: instr) =>
+          Ref l a -> (exp a -> exp a) -> LABProgram exp instr pred pc (l::KPrin) ()
+modifyRef r f = use (ifmap f (unsafeFreezeRef r) :: LABProgram exp instr pred pc (pc ⊔ l) (exp a)) $ \v ->
+                setRef @_ @_ @pc r v
 
 -- | Freeze the contents of reference (only safe if the reference is not updated
 -- as long as the resulting value is alive)
 unsafeFreezeRef
     :: (pred a, l ⊑ pc, FreeExp exp, FreePred exp a, RefCMD :<: instr)
     => Ref l a -> LABProgram exp instr pred pc (pc ⊔ l) (exp a)
-unsafeFreezeRef = LAB . fmap (LVal . valToExp) . singleInj . UnsafeFreezeRef . unRef
+unsafeFreezeRef = LAB . fmap valToExp . singleInj . UnsafeFreezeRef . unRef
 
 --------------------------------------------------------------------------------
 -- * Arrays
@@ -195,22 +198,18 @@ fopen :: forall pc l exp instr pred. (FileCMD :<: instr, pc ⊑ l) =>
 -- TODO: must check whether l is correct label for file
 -- l protects both the contents of the file + the status of the file handle (e.g., open/closed)
 -- TODO: what is the fact that the file exists checked by?
-fopen l file mode = LAB $ do
-                            hdl <- singleInj $ FOpen file mode
-                            return $ LVal $ LABHandle hdl
+fopen l file mode = LAB $ LABHandle <$> (singleInj $ FOpen file mode)
 
 -- | Close a file
 fclose :: (FileCMD :<: instr, pc ⊑ l) => Handle l -> LABProgram exp instr pred pc l' ()
-fclose h = LAB $ do
-       singleInj $ FClose $ unHandle h
-       return LUnit
+fclose h = LAB $ singleInj $ FClose $ unHandle h
 
 -- | Check for end of file
 feof :: (FreeExp exp, FreePred exp Bool, FileCMD :<: instr) =>
-    Handle l -> LABProgram exp instr pred pc (pc ⊔ l) Bool
+    Handle l -> LABProgram exp instr pred pc (pc ⊔ l) (exp Bool)
 feof h = LAB $ do
   b <- singleInj $ FEof $ unHandle h
-  return $ LExp $ Label $ valToExp b
+  return $ valToExp b
 
 class PrintfType l r
   where
@@ -221,9 +220,7 @@ instance (FileCMD :<: instr, a ~ (), pc ⊑ l) =>
     PrintfType l (LABProgram exp instr pred pc l a)
   where
     type PrintfExp (LABProgram exp instr pred pc l a) = exp
-    fprf h form as = LAB $ do
-                       singleInj $ FPrintf (unHandle h) form (reverse as)
-                       return $ LUnit
+    fprf h form as = LAB $ singleInj $ FPrintf (unHandle h) form (reverse as)
 
 instance (Formattable a, PrintfType l r, exp ~ PrintfExp r) =>
     PrintfType l (exp a -> r)
@@ -255,10 +252,10 @@ fget
        , FileCMD :<: instr
        , l ⊑ pc
        )
-    => Handle l -> LABProgram exp instr pred pc (pc ⊔ l) a
+    => Handle l -> LABProgram exp instr pred pc (pc ⊔ l) (exp a)
 fget h = LAB $ do
            v <- singleInj $ FGet $ unHandle h
-           return $ LExp $ Label $ valToExp v
+           return $ valToExp v
 
 -- | Print to @stdout@. Accepts a variable number of arguments.
 printf :: PrintfType KBot r => String -> r
