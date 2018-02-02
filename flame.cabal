@@ -45,7 +45,7 @@ library
                     reflection,
                     containers,
                     text,
-                    ghc >= 8.0.2 && <8.2,
+                    ghc >= 8.0.2 && <8.4,
                     ghc-tcplugins-extra
   hs-source-dirs:      src
   default-language:    Haskell2010

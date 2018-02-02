@@ -21,6 +21,7 @@ To the header of your file.
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections   #-}
+{-# LANGUAGE CPP #-}
 
 {-# OPTIONS_HADDOCK show-extensions #-}
 
@@ -36,17 +37,25 @@ import qualified Data.Set as S    (union, empty, singleton, notMember, toList)
 import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
 import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList, mapWithKey, keysSet, elems, lookup, singleton)
 -- GHC API
-import UniqSet             (uniqSetToList, unionUniqSets)
+
+import UniqSet             (unionUniqSets)
+#if __GLASGOW_HASKELL__ < 82
+import UniqSet             (uniqSetToList)
+#else
+import UniqSet             (nonDetEltsUniqSet)
+#endif
+
+import UniqSet             (unionUniqSets)
 import TcType              (TcLevel, isTouchableMetaTyVar)
 
-import Outputable (Outputable (..), (<+>), ($$), text, ppr)
+import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
 import Plugins    (Plugin (..), defaultPlugin)
 import TcEvidence (EvTerm (..))
 import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt, tcLookupTyCon, tcLookupDataCon,
                    tcPluginIO)
 import TcRnMonad  (getTcLevel)
-import TcRnTypes  (Ct, TcPlugin (..), TcPluginResult(..), ctEvidence, ctEvPred,
-                   isWanted, mkNonCanonical, unsafeTcPluginTcM)
+import TcRnTypes  (Ct, TcPlugin (..), TcPluginResult(..), ShadowInfo(..), ctEvidence, ctEvPred,
+                   isWanted, mkNonCanonical, unsafeTcPluginTcM, ShadowInfo(..))
 import Type       (EqRel (NomEq), Kind, PredTree (EqPred, IrredPred, ClassPred), PredType,
                    classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass, typeKind, mkTyConApp, TyVar)
 import Coercion   (CoercionHole, Role (..), mkForAllCos, mkHoleCo, mkInstCo,
@@ -67,6 +76,11 @@ import Flame.Solver.Data
 import Flame.Solver.Unify
 import Flame.Solver.Norm
 import Flame.Solver.ActsFor
+
+#if __GLASGOW_HASKELL__ >= 82
+uniqSetToList = nonDetEltsUniqSet
+#endif
+
 
 plugin :: Plugin
 plugin = defaultPlugin { tcPlugin = const $ Just flamePlugin }
@@ -149,8 +163,8 @@ decideActsFor _flrec givens  _deriveds wanteds = do
             return (TcPluginOk solved newWanteds)
           Impossible eq -> do
              --return (TcPluginContradiction [fromActsFor eq])
-             -- pprTrace "impossible: " (ppr eq) $
-             return (TcPluginOk [] [])
+             pprTrace "impossible: " (ppr eq) $
+               return (TcPluginOk [] [])
 
 solvePrins :: FlameRec
              -> [ActsForCt]
@@ -367,7 +381,11 @@ unifyItemToCt :: CtLoc
               -> PredType
               -> CoercionHole
               -> Ct
+#if __GLASGOW_HASKELL__ < 82
 unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest hole) loc)
+#else
+unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest hole) WDeriv loc)
+#endif
 
 mkHEqPred :: Type -> Type -> Type
 mkHEqPred t1 t2 = TyConApp heqTyCon [typeKind t1, typeKind t2, t1, t2]

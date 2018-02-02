@@ -25,7 +25,7 @@ where
 -- External
 import Data.List     ((\\), intersect, mapAccumL)
 import UniqSet       (UniqSet, unionManyUniqSets, emptyUniqSet, unionUniqSets,
-                       unitUniqSet, uniqSetToList)
+                       unitUniqSet)
 import Data.Map.Strict (insert, findWithDefault)
 
 -- GHC API

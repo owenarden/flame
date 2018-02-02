@@ -11,7 +11,7 @@ import Data.Map.Strict (findWithDefault)
 
 -- GHC API
 import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, showPpr)
-import Type       (cmpType, coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
+import Type       (coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
 import TcType     (TcLevel, isTouchableMetaTyVar)
 
 #if __GLASGOW_HASKELL__ >= 711

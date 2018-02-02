@@ -8,13 +8,18 @@ import Data.Map.Strict (Map, union, keys, fromList)
 -- GHC API
 import TyCon      (TyCon)
 import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, ($$))
-import Type       (Type,TyVar,cmpType)
+import Type       (Type,TyVar)
 import TcRnTypes  (Ct)
 import TcEvidence (EvTerm (..))
 import TcType     (TcLevel)
 
 #if __GLASGOW_HASKELL__ >= 711
 import Type       (eqType)
+#endif
+#if __GLASGOW_HASKELL__ < 82
+import Type       (cmpType)
+#else
+import Type       (nonDetCmpType)
 #endif
 
 #if __GLASGOW_HASKELL__ >= 711
@@ -23,7 +28,11 @@ instance Eq Type where
 #endif
 
 instance Ord Type where
+#if __GLASGOW_HASKELL__ < 82
   compare = cmpType
+#else
+  compare = nonDetCmpType
+#endif
 
 data Base v s
   = P s -- ^ Primitive principal
