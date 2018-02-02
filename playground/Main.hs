@@ -9,6 +9,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
+
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Main where
@@ -17,16 +18,17 @@ import Data.Int
 import Data.Functor.Identity
 import Text.PrettyPrint.Mainland
 
-import Control.Monad.Operational.Higher (singleInj, reexpress, (:+:))
+import Control.Monad.Operational.Higher (singleInj, reexpress, (:+:), Program, Param2)
 
 import Language.Embedded.Expression
---import Language.Embedded.Imperative
+import Language.Embedded.Imperative ()
 import Language.Embedded.Backend.C
 import Language.Embedded.CExp
 import Language.Embedded.Signature
 import Language.C.Monad 
-import Language.Embedded.Imperative.CMD
+import Language.Embedded.Imperative.CMD hiding (stdin, stdout)
 
+import Flame.EDSL.Do
 import Flame.EDSL.IFC
 import Flame.EDSL.Frontend
 import Flame.Principals
@@ -82,22 +84,16 @@ instance HasBackend HighExp CExp CMD CType where
     cexp <- transHighExp e
     return cexp
 
-powerInput :: LABProgram HighExp CMD CType KBot KBot Int32 
-powerInput = LABP $ do
-  printf "Please enter two numbers\n"
-  printf " > "; m :: HighExp Int32 <- fget stdin
-  printf "m: %d\n" m
-  printf " > "; n :: HighExp Int32 <- fget stdin
-  printf "n: %d\n" n
-  printf "m*n = %d\n" $ (m*n)
-  return $ Label $ HLit 0
-
-powerInput2 :: LABProgram HighExp CMD CType KBot KBot Int32 
-powerInput2 = lab_apply (LABP $ (LUnit <$> printf "Please enter two numbers\n")) $ \_ ->
-              lab_lift $ Label $ HLit 0
+doMultiplyInputs :: LABProgram HighExp CMD CType KBot KBot () 
+doMultiplyInputs = [flame| do
+                     printf "Please enter two numbers\n"
+                     printf (" > "); m :: HighExp Int32 <- fget stdin
+                     printf "m: %d\n" m
+                     printf " > "; n :: HighExp Int32 <- fget stdin
+                     printf "n: %d\n" n
+                     printf "m*n = %d\n" $ (m*n)
+                   |]
 
 main = do
-  putDoc $ case (compileLAB "main" powerInput2) of
+  putDoc $ case (compileLAB "main" doMultiplyInputs) of
               [(s,d)] -> d
-              
---main = runCompiled $ reexpress (transLAB @CMD) powerInput

@@ -33,6 +33,7 @@ module Flame.EDSL.Frontend where
 import Prelude hiding (break)
 import Flame.Principals
 import Flame.EDSL.IFC
+import Flame.EDSL.Do
 
 import Data.Array.IO
 import Data.IORef
@@ -114,40 +115,45 @@ unsafeFreezeRef = LAB . fmap valToExp . singleInj . UnsafeFreezeRef . unRef
 --------------------------------------------------------------------------------
 -- * Control flow
 --------------------------------------------------------------------------------
-{-
 -- | Conditional statement
 iff :: (ControlCMD :<: instr)
     => exp Bool      -- ^ Condition
-    -> ProgramT instr (Param3 exp pred pc) m ()  -- ^ True branch
-    -> ProgramT instr (Param3 exp pred pc) m ()  -- ^ False branch
-    -> ProgramT instr (Param3 exp pred pc) m ()
-iff b t f = singleInj $ If b t f
+    -> LABProgram exp instr pred pc l () -- ^ True branch
+    -> LABProgram exp instr pred pc l () -- ^ False branch
+    -> LABProgram exp instr pred pc l () -- ^ False branch
+iff b (LAB t) (LAB f) = LAB $ singleInj $ If b t f
 
 -- | Conditional statement that returns an expression
-ifE
-    :: ( pred a
+ifE :: forall pred exp instr pc l a. ( pred a
        , FreeExp exp
        , FreePred exp a
        , ControlCMD :<: instr
        , RefCMD     :<: instr
-       , Monad m
+       , pc ⊑ l
        )
     => exp Bool         -- ^ Condition
-    -> ProgramT instr (Param3 exp pred pc) m (exp a)  -- ^ True branch
-    -> ProgramT instr (Param3 exp pred pc) m (exp a)  -- ^ False branch
-    -> ProgramT instr (Param3 exp pred pc) m (exp a)
-ifE b t f = do
-    r <- newRef
-    iff b (t >>= setRef r) (f >>= setRef r)
-    getRef r
+    -> LABProgram exp instr pred pc l (exp a) -- ^ True branch
+    -> LABProgram exp instr pred pc l (exp a) -- ^ False branch
+    -> LABProgram exp instr pred pc l (exp a)
+ifE b t f =
+    [flame| do
+    (r :: Ref l a) <- newRef 
+    iff b
+        (use t $ setRef r)
+        (use f $ setRef r) :: LABProgram exp instr pred pc l Unit
+    reprotect $ getRef r
+    |] 
+
+type Unit = () -- Quasiquoter doesn't like () for some reason
 
 -- | While loop
 while :: (ControlCMD :<: instr)
-    => ProgramT instr (Param3 exp pred pc) m (exp Bool)  -- ^ Continue condition
-    -> ProgramT instr (Param3 exp pred pc) m ()          -- ^ Loop body
-    -> ProgramT instr (Param3 exp pred pc) m ()
-while b t = singleInj $ While b t
+    => LABProgram exp instr pred (pc ⊔ l) l (exp Bool) -- ^ condition
+    -> LABProgram exp instr pred (pc ⊔ l) l' () -- ^ Loop body
+    -> LABProgram exp instr pred pc l' ()
+while (LAB b) (LAB t) = LAB $ singleInj $ While b t
 
+{-
 -- | For loop
 for
     :: ( FreeExp exp
@@ -213,33 +219,35 @@ feof h = LAB $ do
 
 class PrintfType l r
   where
+    type PrintfPC r :: KPrin
     type PrintfExp r :: * -> *
-    fprf :: Handle l -> String -> [PrintfArg (PrintfExp r)] -> r
+    fprf :: ((PrintfPC r) ⊑ l) => Handle l -> String -> [PrintfArg (PrintfExp r)] -> r
 
-instance (FileCMD :<: instr, a ~ (), pc ⊑ l) =>
-    PrintfType l (LABProgram exp instr pred pc l a)
+instance (FileCMD :<: instr, a ~ ()) => PrintfType l (LABProgram exp instr pred (pc :: KPrin) l' a)
   where
-    type PrintfExp (LABProgram exp instr pred pc l a) = exp
+    type PrintfPC (LABProgram exp instr pred pc l' a) = pc
+    type PrintfExp (LABProgram exp instr pred pc l' a) = exp
     fprf h form as = LAB $ singleInj $ FPrintf (unHandle h) form (reverse as)
 
-instance (Formattable a, PrintfType l r, exp ~ PrintfExp r) =>
+instance (Formattable a, PrintfType l r, exp ~ PrintfExp r, pc ~ PrintfPC r) =>
     PrintfType l (exp a -> r)
   where
-    type PrintfExp  (exp a -> r) = exp
+    type PrintfPC (exp a -> r) = PrintfPC r
+    type PrintfExp (exp a -> r) = exp
     fprf h form as = \a -> fprf h form (PrintfArg a : as)
 
 -- | Print to a handle. Accepts a variable number of arguments.
-fprintf :: PrintfType l r => Handle l -> String -> r
+fprintf :: (PrintfType l r, (PrintfPC r) ⊑ l) => Handle l -> String -> r
 fprintf h format = fprf h format []
 
 -- | Put a single value to a handle
-fput :: forall instr exp pred a m pc l l'
+fput :: forall instr exp pred a m pc l
     .  (Formattable a, FreePred exp a, FileCMD :<: instr, pc ⊑ l)
     => Handle l
     -> String  -- ^ Prefix
     -> exp a   -- ^ Expression to print
     -> String  -- ^ Suffix
-    -> LABProgram exp instr pred pc l ()
+    -> LABProgram exp instr pred pc pc ()
 fput hdl prefix a suffix =
     fprintf hdl (prefix ++ formatSpecPrint (Proxy :: Proxy a) ++ suffix) a
 
@@ -258,7 +266,7 @@ fget h = LAB $ do
            return $ valToExp v
 
 -- | Print to @stdout@. Accepts a variable number of arguments.
-printf :: PrintfType KBot r => String -> r
+printf :: (PrintfType KBot r, PrintfPC r ⊑ KBot) => String -> r
 printf = fprintf stdout
 {-
 -}

@@ -63,11 +63,6 @@ newtype LABProgram exp instr pred pc l a = LAB { program :: Program instr (Param
 lift :: Label l a -> LABProgram exp instr pred pc l a
 lift = LAB . return . runLabel
 
-seq :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l a
-    -> LABProgram exp instr pred pc' l' b
-    -> LABProgram exp instr pred pc'' l' b
-seq (LAB p) (LAB q) = LAB $ p >> q
-
 apply :: (pc ⊑ pc', pc ⊑ pc'') => LABProgram exp instr pred pc l a
       -> (Label l a -> LABProgram exp instr pred pc' l' b)
       -> LABProgram exp instr pred pc'' l' b
@@ -88,25 +83,25 @@ class HasBackend exp1 exp2 instr pred where
 reexpressLAB :: forall instr1 instr2 exp1 exp2 pred pc l a b .
               (Reexpressible instr1 instr2 ()
               , HasBackend exp1 exp2 instr2 pred
-              , CType a
               )
              => (forall b . exp1 b -> Program instr2 (Param2 exp2 pred) (exp2 b))
              -> LABProgram exp1 instr1 pred pc l a -> LABProgram exp2 instr2 pred pc l a
 reexpressLAB f (LAB p) = LAB $ reexpress @instr1 @instr2 @_ @exp1 @exp2 f p
 
-wrapFunc s prog = do
+wrapProc :: MonadC m => String -> m a -> m () 
+wrapProc s prog = do
     (_,uvs,params,items) <- inNewFunction $ prog >> addStm [cstm| return 0; |]
     setUsedVars s uvs
     addGlobal [cedecl| int $id:s($params:params){ $items:items }|]
 
-compileLAB :: forall instr exp pred pc l a.
+compileLAB :: forall instr exp pred pc l.
               ( HasBackend exp CExp instr pred 
               , Reexpressible instr instr ()
               , Interp instr CGen (Param2 CExp pred)
-              , CType a, FreeExp exp, RefCMD :<: instr
+              , FreeExp exp, RefCMD :<: instr
               )
-           => String -> LABProgram exp instr pred pc l a -> [(String,Doc)]
-compileLAB s p = prettyCGen . wrapFunc s $ (interpret . program) (reexpressLAB @instr @instr @exp @CExp translateExp p)
+           => String -> LABProgram exp instr pred pc l () -> [(String,Doc)]
+compileLAB s p = prettyCGen . wrapProc s $ (interpret . program) (reexpressLAB @instr @instr @exp @CExp translateExp p)
 
 relabel :: (l ⊑ l') => Label l a -> Label l' a
 relabel a = Unlabel a Label 
@@ -118,6 +113,11 @@ use :: forall exp instr pred l l' pc pc' pc'' a b.
        (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
     => LABProgram exp instr pred pc l a -> (a -> LABProgram exp instr pred pc' l' b) -> LABProgram exp instr pred pc'' l' b
 use x f = apply x $ \x' -> (bind x' f :: LABProgram exp instr pred pc' l' b)
+
+(>>>=) :: forall exp instr pred l l' pc pc' pc'' a b.
+       (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'')
+    => LABProgram exp instr pred pc l a -> (a -> LABProgram exp instr pred pc' l' b) -> LABProgram exp instr pred pc'' l' b
+x >>>= f = use x f
  
 reprotect :: forall exp instr pred l l' pc pc' a.
              (l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l')
@@ -128,3 +128,7 @@ ifmap :: forall exp instr pred l l' pc pc' a b.
          (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l')
       => (a -> b) -> LABProgram exp instr pred pc l a -> LABProgram exp instr pred pc' l' b
 ifmap f x = use x (\x' -> protect (f x') :: LABProgram exp instr pred (pc ⊔ l) l' b)
+
+ijoin :: forall exp instr pred l l' pc pc' a. (l ⊑ l',  pc ⊑ pc', l ⊑ pc')
+      => LABProgram exp instr pred pc l (LABProgram exp instr pred pc' l' a) -> LABProgram exp instr pred pc' l' a
+ijoin x = use x id
