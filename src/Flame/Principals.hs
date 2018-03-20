@@ -5,7 +5,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
---{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -40,7 +39,7 @@ import Data.Text  (pack, unpack)
 
 import Flame.Runtime.Principals
 
-{- The principal kind -}
+{-| The principal kind. Type-level FLAM principals |-}
 data KPrin =
   KTop
   | KBot
@@ -52,7 +51,13 @@ data KPrin =
   | KVoice KPrin
   | KEye   KPrin
 
-{- Singleton GADT for KPrin -}
+{-| 
+Singleton GADT for KPrin. This GADT associates a KPrin (which is an
+uninstantiable kind) with a single runtime value, providing a link
+between runtime principals and type-level principals.  NB: we employ
+an explicit singleton pattern here b/c the singletons package cannot
+promote strings to symbols.
+|-}
 data SPrin :: KPrin -> * where
   STop   :: SPrin KTop
   SBot   :: SPrin KBot
@@ -66,7 +71,6 @@ data SPrin :: KPrin -> * where
 
 deriving instance Show (SPrin p)
 deriving instance Eq (SPrin p)
-
 
 {- Some notation help -}
 type C p      = KConf p
@@ -169,14 +173,22 @@ promote :: Prin -> Ex DPrin
 promote p = case promoteS p of
               Ex p' -> Ex (p <=> p')
 
--- do not export <=> or UnsafeBindP. This ensures only withPrin can associate
---  runtime principals wth singleton principal types.
+
+{-| DPrin p is a record associating a dynamic principal with a
+singleton principal. This construction is necessary since not all
+principal names may be known at compile-time, yet we still 
+want to construct a type-level representation for runtime principals.
+
+Restricting <=> and UnsafeAssoc to trusted code ensures only withPrin
+can associate runtime principals wth singleton principal types.
+|-}
 data DPrin p = UnsafeAssoc { dyn :: Prin, st :: SPrin p } 
 dynamic = dyn
 static = st 
 (<=>) :: Prin -> SPrin p -> DPrin p
 p <=> sp = UnsafeAssoc p sp
 
+{-| Notation helpers for DPrin values |-} 
 (⊤) :: DPrin (⊤)
 (⊤) = Top <=> STop
 top = (⊤)
@@ -217,13 +229,13 @@ meet = (⊓)
 δ :: DPrin p -> DPrin (Δ p)
 δ p = eyeOf (dyn p) <=> SEye (st p)
 
-{- Actsfor constraint -}
-{- Exported type operators for actsfor -}
+{-| Actsfor constraints. This type family is closed: only the Flame solver is capable of resolving these constraints.  |-}
 type family (≽) (p :: KPrin) (q :: KPrin) :: Constraint where
 
+{- Type synonyms for acts for constraints. As in FLAM, the safe
+information flow relation is defined in terms of the acts-for
+relation. -}
 type (>=) (p :: KPrin) (q :: KPrin) = (p ≽ q) 
-
-{- Exported type operators for flowsto -}
 type (⊑) (p :: KPrin) (q :: KPrin) = (C q ≽ C p , I p ≽ I q) 
 type (<:) (p :: KPrin) (q :: KPrin) = (p ⊑ q)
 type (===) (p :: KPrin) (q :: KPrin) = (p ≽ q, q ≽ p)
