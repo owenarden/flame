@@ -25,13 +25,11 @@ import Flame.TCB.Assume
 {- An indexed monad for information flow on pure computation -}
 class Labeled (n :: KPrin -> * -> *) where
   label     :: a -> n l a
-  bind      :: (l ⊑ l') => n l a -> (a -> n l' b) -> n l' b
-  unlabelPT :: n PT a -> a
-  unlabelU  :: n l () -> ()
+  unlabel :: (l ⊑ l') => n l a -> (a -> n l' b) -> n l' b
   unsafeUnlabel :: n l a -> a
   
   relabel :: (l ⊑ l') => n l a -> n l' a
-  relabel a = bind a label
+  relabel a = unlabel a label
 
 {- Information flow control based on FLAM acts-for constraints -}
 class (Monad e, Labeled n) => IFC (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -> KPrin -> * -> *) e n where
@@ -39,7 +37,7 @@ class (Monad e, Labeled n) => IFC (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
 
   apply  :: (pc ⊑ pc', pc ⊑ pc'') => m e n pc l a -> (n l a -> m e n pc' l' b) -> m e n pc'' l' b
 
-  ebind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> m e n pc l' b) -> m e n pc' l' b
+  bind  :: (l ⊑ l', l ⊑ pc) => n l a -> (a -> m e n pc l' b) -> m e n pc' l' b
 
   unsafeProtect :: e (n l a) -> m e n pc l a
 
@@ -50,7 +48,7 @@ class (Monad e, Labeled n) => IFC (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
 
   use :: forall l l' pc pc' pc'' a b. (l ⊑ l', pc ⊑ pc', l ⊑ pc', pc ⊑ pc'') =>
          m e n pc l a -> (a -> m e n pc' l' b) -> m e n pc'' l' b
-  use x f = apply x $ \x' -> (ebind x' f :: m e n pc' l' b)
+  use x f = apply x $ \x' -> (bind x' f :: m e n pc' l' b)
  
   reprotect :: forall l l' pc pc' a. (l ⊑ l', pc ⊑ pc', (pc ⊔ l) ⊑ l') => m e n pc l a -> m e n pc' l' a 
   reprotect x = use x (protect :: a -> m e n (pc ⊔ l) l' a)
@@ -63,12 +61,12 @@ class (Monad e, Labeled n) => IFC (m :: (* -> *) -> (KPrin -> * -> *) -> KPrin -
 
 {- Flow-limited authorization for IFC types -}
 class IFC m e n => FLA m e n where
-  assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
+  weak_assume :: (pc ≽ ((I q) ∧ (∇) q), (∇) p ≽ (∇) q) =>
               (p :≽ q) -> ((p ≽ q) => m e n pc l a) -> m e n pc l a
-  assume = unsafeAssume
-  assume2 :: (pc ≽ ((I q) ∧ (∇) q)) =>
+  weak_assume = unsafeAssume
+  assume :: (pc ≽ ((I q) ∧ (∇) q)) =>
               (p :≽ q) -> ((p ≽ q, (∇) p ≽ (∇) q) => m e n pc l a) -> m e n pc l a
-  assume2 (Del p q) f = unsafeAssume ((*∇) p ≽ (*∇) q) $ unsafeAssume (p ≽ q) f
+  assume (Del p q) f = unsafeAssume ((*∇) p ≽ (*∇) q) $ unsafeAssume (p ≽ q) f
 
 
 {- Nonmalleable information flow control -}
@@ -84,8 +82,6 @@ class IFC m e n => NMIF m e n where
   endorse    :: ( ((I pc) ⊓ (I l')) ⊑ (I l)
                 , (I pc) ⊑ (I l')
                 , (I l') ⊑ ((I l) ⊔ ((∇) (C l' ⊔ C pc)))
-                --, (I l') ⊑ ((I l) ⊔ ((∇) (C l')))
-                --, (I l') ⊑ ((I l) ⊔ ((∇) (C pc)))
                 , (C l') === (C l)
                 ) =>
              m e n pc l' a -> m e n pc l a 
@@ -94,32 +90,23 @@ class IFC m e n => NMIF m e n where
     return $ label (unsafeUnlabel x')
 
 {- A type for pure labeled computations -}
-data Lbl (l::KPrin) a where
-  UnsafeMkLbl :: { unsafeRunLbl :: a } -> Lbl l a
 -- both the constructor and destructor must be private:
 --   since either will unlabel a value
 --   (the constructor enables pattern matching)
+data Lbl (l::KPrin) a where
+  UnsafeMkLbl :: { unsafeRunLbl :: a } -> Lbl l a
 
 lbl_label :: a -> Lbl l a
 lbl_label = UnsafeMkLbl
 
-lbl_bind :: (l ⊑ l') => Lbl l a -> (a -> Lbl l' b) -> Lbl l' b    
-lbl_bind x f = f (unsafeRunLbl x)
-
-lbl_unlabelPT :: Lbl PT a -> a
-lbl_unlabelPT a = unsafeRunLbl a
-
-lbl_unlabelU :: Lbl l () -> ()
-lbl_unlabelU a = unsafeRunLbl a
+lbl_unlabel :: (l ⊑ l') => Lbl l a -> (a -> Lbl l' b) -> Lbl l' b    
+lbl_unlabel x f = f (unsafeRunLbl x)
 
 {- A Labeled instance for Lbl -}
 instance Labeled Lbl where
   label = lbl_label
-  bind = lbl_bind
+  unlabel = lbl_unlabel
   unsafeUnlabel = unsafeRunLbl
-  unlabelPT = lbl_unlabelPT 
-  unlabelU = lbl_unlabelU
-
 
 {- A transformer for effectful labeled computations -}
 data FLACT e (n :: KPrin -> * -> *) (pc :: KPrin) (l :: KPrin) a where
@@ -131,8 +118,8 @@ type FLAC e pc l a = FLACT e Lbl pc l a
 flac_lift :: Monad e => Lbl l a -> FLAC e pc l a
 flac_lift  x = UnsafeFLAC $ Prelude.return x
 
-flac_ebind :: (Monad e, l ⊑ l', l ⊑ pc') => Lbl l a -> (a -> FLAC e pc' l' b) -> FLAC e pc l' b
-flac_ebind x f = UnsafeFLAC $ runFLAC $ f $ unsafeRunLbl x
+flac_bind :: (Monad e, l ⊑ l', l ⊑ pc') => Lbl l a -> (a -> FLAC e pc' l' b) -> FLAC e pc l' b
+flac_bind x f = UnsafeFLAC $ runFLAC $ f $ unsafeRunLbl x
 
 flac_apply :: (Monad e, pc ⊑ pc', pc ⊑ pc'') => FLAC e pc l a -> (Lbl l a -> FLAC e pc' l' b) -> FLAC e pc'' l' b
 flac_apply x f = UnsafeFLAC $ do
@@ -140,9 +127,9 @@ flac_apply x f = UnsafeFLAC $ do
                    runFLAC $ f a
 
 instance Monad e => IFC FLACT e Lbl where
-  lift    = flac_lift 
-  ebind   = flac_ebind
-  apply   = flac_apply
+  lift  = flac_lift 
+  apply = flac_apply
+  bind  = flac_bind
   unsafeProtect = UnsafeFLAC
   runIFC  = runFLAC
 
@@ -157,8 +144,8 @@ type NM e pc l a = NMT e Lbl pc l a
 nmif_lift :: Monad e => Lbl l a -> NM e pc l a
 nmif_lift  x = UnsafeNM $ Prelude.return x
 
-nmif_ebind :: (Monad e, l ⊑ l', l ⊑ pc') => Lbl l a -> (a -> NM e pc' l' b) -> NM e pc l' b
-nmif_ebind x f = UnsafeNM $ runNM $ f $ unsafeRunLbl x
+nmif_bind :: (Monad e, l ⊑ l', l ⊑ pc') => Lbl l a -> (a -> NM e pc' l' b) -> NM e pc l' b
+nmif_bind x f = UnsafeNM $ runNM $ f $ unsafeRunLbl x
 
 nmif_apply :: (Monad e, pc ⊑ pc', pc ⊑ pc'') => NM e pc l a -> (Lbl l a -> NM e pc' l' b) -> NM e pc'' l' b
 nmif_apply x f = UnsafeNM $ do
@@ -167,11 +154,9 @@ nmif_apply x f = UnsafeNM $ do
 
 instance Monad e => IFC NMT e Lbl where
   lift    = nmif_lift 
-  ebind   = nmif_ebind
+  bind   = nmif_bind
   apply   = nmif_apply
   unsafeProtect = UnsafeNM
   runIFC  = runNM
 
 instance Monad e => NMIF NMT e Lbl where {}
-{-
--}

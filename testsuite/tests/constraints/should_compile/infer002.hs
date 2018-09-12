@@ -26,7 +26,7 @@ unifyMe ma = let stdout = mkStdout (SBot*→) in
                     Just a ->
                       {- Use the granted authority print Alice's secret -}
                       assume ((*∇) SBot ≽ (*∇) alice) $ assume (SBot ≽ alice) $
-                        ebind aliceSecret $ \secret ->
+                        bind aliceSecret $ \secret ->
                         hPutStrLn stdout secret
                     Nothing ->             
                         hPutStrLn stdout "Incorrect password."
