@@ -45,7 +45,6 @@ import UniqSet             (uniqSetToList)
 import UniqSet             (nonDetEltsUniqSet)
 #endif
 
-import UniqSet             (unionUniqSets)
 import TcType              (TcLevel, isTouchableMetaTyVar)
 
 import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
@@ -359,10 +358,11 @@ evMagic flrec cts preds =
    doMagic :: [(PredType, Ct)] -> TcPluginM ([(EvTerm, Ct)], [Ct])
    doMagic [] = return ([], [])
    doMagic afcts@((af,ct):_) = do
-       holes <- replicateM (length preds) newCoercionHole
+       --holes <- replicateM (length preds) newCoercionHole
+       holes <- mapM newCoercionHole preds
        --XXX ugh. what ctLoc to use here?
        let newWanted = zipWith (unifyItemToCt (ctLoc ct)) preds holes
-           holeEvs   = zipWith (\h p -> uncurry (mkHoleCo h Nominal) (getEqPredTys p)) holes preds
+           holeEvs   = map mkHoleCo holes
            kprinReflCo = mkNomReflCo $ TyConApp (kprin flrec) []
            kprinCoBndr = (,kprinReflCo) <$> (newFlexiTyVar $  TyConApp (kprin flrec) [])
        evs <- mapM (\(af', ct') -> case af' of

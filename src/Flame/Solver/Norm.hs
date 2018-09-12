@@ -83,20 +83,12 @@ mkNonEmpty s      = s
 -- * 'mergeM'
 -- * 'mergeB'
 simplifyJNorm :: (Ord v, Ord c) => JNorm v c -> JNorm v c
-simplifyJNorm = repeatF go
-  where
-    go = mkNonEmpty
+simplifyJNorm = mkNonEmpty
        . J
        . sort . filter (not . zeroM)
        . mergeWith mergeM
        . map (M . sort . mergeWith mergeB . unM)
        . unJ
-
-    repeatF f x =
-      let x' = f x
-      in  if x' == x
-             then x
-             else repeatF f x'
 {-# INLINEABLE simplifyJNorm #-}
 
 -- | Merge two JNorm terms by join
