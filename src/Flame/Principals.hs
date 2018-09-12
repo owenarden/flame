@@ -231,11 +231,16 @@ meet = (⊓)
 
 {-| Actsfor constraints. This type family is closed: only the Flame solver is capable of resolving these constraints.  |-}
 type family (≽) (p :: KPrin) (q :: KPrin) :: Constraint where
+infixl 4 ≽
 
 {- Type synonyms for acts for constraints. As in FLAM, the safe
 information flow relation is defined in terms of the acts-for
 relation. -}
 type (>=) (p :: KPrin) (q :: KPrin) = (p ≽ q) 
+infixl 4 >=
 type (⊑) (p :: KPrin) (q :: KPrin) = (C q ≽ C p , I p ≽ I q) 
+infixl 4 ⊑
 type (<:) (p :: KPrin) (q :: KPrin) = (p ⊑ q)
+infixl 4 <:
 type (===) (p :: KPrin) (q :: KPrin) = (p ≽ q, q ≽ p)
+infixl 4 ===
