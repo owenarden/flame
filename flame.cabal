@@ -49,7 +49,7 @@ library
                     reflection,
                     containers,
                     text,
-                    ghc >= 8.0.2 && <8.5,
+                    ghc >= 8.4 && <8.5,
                     ghc-tcplugins-extra,
                     bytestring,
                     base64-bytestring,
