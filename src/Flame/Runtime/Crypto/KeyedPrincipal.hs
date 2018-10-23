@@ -12,7 +12,7 @@ module Flame.Runtime.Crypto.KeyedPrincipal where
 import qualified Data.Map as M
 import Flame.Principals
 import Flame.Runtime.Principals
-import Flame.IFC
+import Flame.TCB.IFC
 import Flame.Runtime.Crypto
 import Flame.Runtime.Crypto.KeyMap
 import qualified Data.ByteString.Char8 as B
