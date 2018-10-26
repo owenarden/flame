@@ -16,8 +16,7 @@ flame :: QuasiQuoter
 flame = QuasiQuoter { quoteExp = \str -> case parseExp str of
         Right (DoE ss) -> return (go ss)
         Right _ -> fail "Expecting do notation"
- 
-      Left err -> fail (show err)
+        Left err -> fail (show err)
         , quotePat = undefined
         , quoteType = \str -> case parseType str of
         Right t -> return t
