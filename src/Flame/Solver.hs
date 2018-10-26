@@ -160,9 +160,22 @@ decideActsFor _flrec givens  _deriveds wanteds = do
             let solved = filter (isWanted . ctEvidence . (\(_,x) -> x)) (fst evs)
                 newWanteds = snd evs
             return (TcPluginOk solved newWanteds)
-          Impossible eq -> do
+          Impossible eq@(ct, (p, q)) -> do
              --return (TcPluginContradiction [fromActsFor eq])
-             pprTrace "impossible: " (ppr eq) $
+             pprTrace ("Cannot prove "
+                      ++ (outputKPrin flrec (reifyNorm flrec p))
+                      ++  " ≽ "
+                      ++ (outputKPrin flrec (reifyNorm flrec q))
+                      ++ " with context ["
+                      ++ foldl (\ctx eq@(ct, (p, q)) ->
+                                  ctx ++ "("
+                                  ++ (outputKPrin flrec (reifyNorm flrec p))
+                                  ++  " ≽ "
+                                  ++ (outputKPrin flrec (reifyNorm flrec q))
+                                  ++ ")"
+                               ) "" unit_givens
+                       ++ "]"
+                      ) (ppr "") $
                return (TcPluginOk [] [])
 
 solvePrins :: FlameRec

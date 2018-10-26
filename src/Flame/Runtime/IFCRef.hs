@@ -13,8 +13,8 @@ import Data.IORef
 
 data IFCRef (l::KPrin) a = IFCRef { unsafeUnwrap :: IORef a}
 
-newIFCRef :: (IFC m IO n, pc ⊑ l) => SPrin l -> a -> m IO n pc pc (IFCRef l a)
-newIFCRef l a = unsafeProtect $ do 
+newIFCRef :: (IFC m IO n, pc ⊑ l) => a -> m IO n pc pc (IFCRef l a)
+newIFCRef a = unsafeProtect $ do 
                   r <- newIORef a
                   return . label $ IFCRef r
 

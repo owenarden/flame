@@ -10,9 +10,10 @@ import Data.Function (on)
 import Data.Map.Strict (findWithDefault)
 
 -- GHC API
-import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, showPpr)
+import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, showPpr, SDoc)
 import Type       (coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
 import TcType     (TcLevel, isTouchableMetaTyVar)
+import DynFlags
 
 #if __GLASGOW_HASKELL__ >= 711
 import TyCoRep    (Type (..), TyLit (..), UnivCoProvenance(..), Coercion(..))
@@ -346,3 +347,25 @@ substBase level bounds isConf (UVoice t) = J [M [UVoice t]]
 substBase level bounds isConf (UEye t) = J [M [UEye t]]
 
 jbot = J [M [B]]
+
+---- | Print a type of /kind/ 'Flame.Principals.KPrin' 
+outputKPrin :: FlameRec -> Type -> String
+outputKPrin flrec ty
+  | Just ty1 <- coreView ty = outputKPrin flrec ty1
+outputKPrin flrec (TyVarTy v) = showGhc v
+outputKPrin flrec (TyConApp tc [])
+  | tc == (ktop flrec) = "⊤"
+  | tc == (kbot flrec) = "⊥"
+outputKPrin flrec (TyConApp tc [x])
+  | tc == (kname flrec)  = showGhc x
+  | tc == (kconf flrec)  = (outputKPrin flrec x  ++ " →")
+  | tc == (kinteg flrec) = (outputKPrin flrec x ++ " ←")
+  | tc == (kvoice flrec) = ("∇(" ++ outputKPrin flrec x  ++ ")")
+  | tc == (keye flrec)   = ("Δ(" ++ outputKPrin flrec x  ++ ")")
+outputKPrin flrec (TyConApp tc [x,y])
+  | tc == (kconj flrec) = ("(" ++ outputKPrin flrec x ++ " ∧ " ++ outputKPrin flrec y ++ ")")
+  | tc == (kdisj flrec) = ("(" ++ outputKPrin flrec x ++ " ∨ " ++ outputKPrin flrec y ++ ")")
+outputKPrin flrec ty    = showGhc ty
+
+showGhc :: (Outputable a) => a -> String
+showGhc = showPpr unsafeGlobalDynFlags
