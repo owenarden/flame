@@ -35,6 +35,8 @@ library
                     Flame.Runtime.Crypto.KeyMap
                     Flame.Runtime.Crypto.KeyedPrincipal
                     Flame.Runtime.Crypto.Util
+                    Flame.Do
+
 
   -- other-modules:       
   other-extensions: GADTs, PolyKinds, KindSignatures, MultiParamTypeClasses, 
@@ -55,7 +57,10 @@ library
                     base64-bytestring,
                     cryptonite,
                     mtl,
-                    cereal
+                    cereal,
+                    template-haskell,
+                    haskell-src-meta
+
 
 
   hs-source-dirs:      src
