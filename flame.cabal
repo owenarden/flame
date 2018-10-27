@@ -36,6 +36,7 @@ library
                     Flame.Runtime.Crypto.KeyedPrincipal
                     Flame.Runtime.Crypto.Util
                     Flame.Do
+                    Flame.Core
 
 
   -- other-modules:       
