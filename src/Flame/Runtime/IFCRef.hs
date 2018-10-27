@@ -2,6 +2,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.IFCRef
@@ -13,7 +14,7 @@ import Data.IORef
 
 data IFCRef (l::KPrin) a = IFCRef { unsafeUnwrap :: IORef a}
 
-newIFCRef :: (IFC m IO n, pc ⊑ l) => a -> m IO n pc pc (IFCRef l a)
+newIFCRef :: forall l pc m n a. (IFC m IO n, pc ⊑ l) => a -> m IO n pc pc (IFCRef l a)
 newIFCRef a = unsafeProtect $ do 
                   r <- newIORef a
                   return . label $ IFCRef r
