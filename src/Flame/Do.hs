@@ -9,11 +9,45 @@ module Flame.Do (flame) where
 import Language.Haskell.Meta
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
+import qualified Language.Haskell.Exts.Syntax as Hs
+import qualified Language.Haskell.Exts.SrcLoc as Hs
+import Language.Haskell.Exts.Extension as Ext
+import Language.Haskell.Exts.Parser (ParseMode(..), ParseResult(..), parseExpWithMode)
 
 import Flame.IFC
 
+myDefaultParseMode2 :: ParseMode
+myDefaultParseMode2 = ParseMode
+  {parseFilename = []
+  ,baseLanguage = Haskell2010
+  ,extensions = map EnableExtension myDefaultExtensions2
+  ,ignoreLinePragmas = False
+  ,ignoreLanguagePragmas = False
+  ,fixities = Nothing
+  ,ignoreFunctionArity = False
+  }
+
+myDefaultExtensions2 :: [KnownExtension]
+myDefaultExtensions2 = [Ext.PostfixOperators
+                      ,Ext.QuasiQuotes
+                      ,Ext.UnicodeSyntax
+                      ,Ext.PatternSignatures
+                      ,Ext.MagicHash
+                      ,Ext.ForeignFunctionInterface
+                      ,Ext.TemplateHaskell
+                      ,Ext.RankNTypes
+                      ,Ext.MultiParamTypeClasses
+                      ,Ext.RecursiveDo
+                      ,Ext.TypeApplications]
+  
+myParseExp :: String -> Either String Exp
+myParseExp = either Left (Right . toExp) . myParseHsExp
+
+myParseHsExp :: String -> Either String (Hs.Exp Hs.SrcSpanInfo)
+myParseHsExp = parseResultToEither . parseExpWithMode myDefaultParseMode2
+
 flame :: QuasiQuoter
-flame = QuasiQuoter { quoteExp = \str -> case parseExp str of
+flame = QuasiQuoter { quoteExp = \str -> case myParseExp str of
         Right (DoE ss) -> return (go ss)
         Right _ -> fail "Expecting do notation"
         Left err -> fail (show err)

@@ -60,7 +60,8 @@ library
                     mtl,
                     cereal,
                     template-haskell,
-                    haskell-src-meta
+                    haskell-src-meta,
+                    haskell-src-exts
 
 
 
