@@ -10,16 +10,21 @@ import Data.Function (on)
 import Data.Map.Strict (findWithDefault)
 
 -- GHC API
-import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, showPpr, SDoc)
-import Type       (coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
-import TcType     (TcLevel, isTouchableMetaTyVar)
-import DynFlags
+import GHC.Plugins
+import GHC.Core.TyCo.Rep
+import GHC.Tc.Utils.TcType
+import GHC.Tc.Solver.Monad ( TcLevel )
+import GHC.Driver.Session
 
-#if __GLASGOW_HASKELL__ >= 711
-import TyCoRep    (Type (..), TyLit (..), UnivCoProvenance(..), Coercion(..))
-#else
-import TypeRep    (Type (..), TyLit (..))
-#endif
+-- import Type       (coreView, mkTyVarTy, mkTyConApp, expandTypeSynonyms)
+-- import TcType     (TcLevel, isTouchableMetaTyVar)
+-- import DynFlags
+
+-- #if __GLASGOW_HASKELL__ >= 711
+-- import TyCoRep    (Type (..), TyLit (..), UnivCoProvenance(..), Coercion(..))
+-- #else
+-- import TypeRep    (Type (..), TyLit (..))
+-- #endif
 
 mergeWith :: (a -> a -> Either a a) -> [a] -> [a]
 mergeWith _ []      = []
@@ -368,4 +373,4 @@ outputKPrin flrec (TyConApp tc [x,y])
 outputKPrin flrec ty    = showGhc ty
 
 showGhc :: (Outputable a) => a -> String
-showGhc = showPpr unsafeGlobalDynFlags
+showGhc = showPprUnsafe 

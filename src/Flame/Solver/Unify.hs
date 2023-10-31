@@ -24,22 +24,25 @@ where
 
 -- External
 import Data.List     ((\\), intersect, mapAccumL)
-import UniqSet       (UniqSet, unionManyUniqSets, emptyUniqSet, unionUniqSets,
+import GHC.Types.Unique.Set (UniqSet, unionManyUniqSets, emptyUniqSet, unionUniqSets,
                        unitUniqSet)
 import Data.Map.Strict (insert, findWithDefault)
 
 -- GHC API
-import Outputable    (Outputable (..), (<+>), ($$), text, pprTrace)
-import TcType     (isSkolemTyVar)
-import TcPluginM     (TcPluginM, tcPluginTrace)
-import TcRnMonad     (Ct, ctEvidence, isGiven)
-import TcRnTypes     (ctEvPred)
-import TcTypeNats    (typeNatAddTyCon, typeNatExpTyCon, typeNatMulTyCon,
-                      typeNatSubTyCon)
-import Type          (EqRel (NomEq), PredTree (EqPred), TyVar, classifyPredType,
-                      coreView, eqType, mkNumLitTy, mkTyConApp, mkTyVarTy,
-                      nonDetCmpType)
-import TyCoRep       (Type (..), TyLit (..))
+import GHC.Plugins
+-- import Outputable    (Outputable (..), (<+>), ($$), text, pprTrace)
+-- import TcType     (isSkolemTyVar)
+-- import TcPluginM     (TcPluginM, tcPluginTrace)
+-- import TcRnMonad     (Ct, ctEvidence, isGiven)
+-- import TcRnTypes     (ctEvPred)
+-- import TcTypeNats    (typeNatAddTyCon, typeNatExpTyCon, typeNatMulTyCon,
+--                       typeNatSubTyCon)
+-- import Type          (EqRel (NomEq), PredTree (EqPred), TyVar, classifyPredType,
+--                       coreView, eqType, mkNumLitTy, mkTyConApp, mkTyVarTy,
+--                       nonDetCmpType)
+-- import TyCoRep       (Type (..), TyLit (..))
+
+-- Internal
 import Flame.Solver.Data
 import Flame.Solver.Norm
 import Flame.Solver.ActsFor

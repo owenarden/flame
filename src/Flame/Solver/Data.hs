@@ -6,33 +6,35 @@ import Data.IORef (IORef)
 import Data.Map.Strict (Map, union, keys, fromList)
 
 -- GHC API
-import TyCon      (TyCon)
-import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, ($$))
-import Type       (Type,TyVar)
-import TcRnTypes  (Ct)
-import TcEvidence (EvTerm (..))
-import TcType     (TcLevel)
+import GHC.Plugins (Type, TyCon, TyVar, ($$), (<+>), text, Outputable(..), ppr, hcat, punctuate, eqType, nonDetCmpType)
+import GHC.Tc.Types.Constraint ( Ct )
+import GHC.Tc.Types.Evidence ( EvTerm )
+import GHC.Tc.Solver.Monad ( TcLevel )
 
-#if __GLASGOW_HASKELL__ >= 711
-import Type       (eqType)
-#endif
-#if __GLASGOW_HASKELL__ < 82
-import Type       (cmpType)
-#else
-import Type       (nonDetCmpType)
-#endif
 
-#if __GLASGOW_HASKELL__ >= 711
+
+
+-- import TyCon      (TyCon)
+-- import Outputable (Outputable (..), (<+>), text, hcat, punctuate, ppr, ($$))
+-- import Type       (Type,TyVar)
+-- import TcRnTypes  (Ct)
+-- import TcEvidence (EvTerm (..))
+-- import TcType     (TcLevel)
+-- 
+-- #if __GLASGOW_HASKELL__ >= 711
+-- import Type       (eqType)
+-- #endif
+-- #if __GLASGOW_HASKELL__ < 82
+-- import Type       (cmpType)
+-- #else
+-- import Type       (nonDetCmpType)
+-- #endif
+
 instance Eq Type where
   (==) = eqType
-#endif
 
 instance Ord Type where
-#if __GLASGOW_HASKELL__ < 82
-  compare = cmpType
-#else
   compare = nonDetCmpType
-#endif
 
 data Base v s
   = P s -- ^ Primitive principal

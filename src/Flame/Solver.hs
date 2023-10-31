@@ -37,55 +37,70 @@ import qualified Data.Set as S    (union, empty, singleton, notMember, toList)
 import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
 import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList, mapWithKey, keysSet, elems, lookup, singleton)
 -- GHC API
+import GHC (lookupModule, lookupName)
+import GHC.Plugins hiding (TcPlugin)
+--    ( Plugin(tcPlugin),
+--      heqDataCon,
+--      heqTyCon,
+--      mkForAllCos,
+--      mkHoleCo,
+--      mkInstCo,
+--      mkNomReflCo,
+--      mkPrimEqPred,
+--      mkUnivCo,
+--      dataConWrapId,
+--      promoteDataCon,
+--      mkTyVarTy,
+--      mkTyConApp,
+--      typeKind,
+--      fsLit,
+--      defaultPlugin,
+--      pprTrace,
+--      mkDataOcc,
+--      mkTcOcc,
+--      uniqSets
+--      unionUniqSets,
+--      mkModuleName,
+--      Role(Representational),
+--      CoercionHole,
+--      PredType,
+--      Type,
+--      TyCon(tyConUnique),
+--      -- TcPlugin,
+--      TyVar,
+--      Outputable(ppr) ) 
+import GHC.Tc.Types
+    ( TcPluginM,
+      unsafeTcPluginTcM,
+      TcPlugin(TcPlugin, tcPluginStop, tcPluginInit, tcPluginSolve),
+      TcPluginResult(TcPluginOk) )
+import GHC.Tc.Types.Constraint
+import GHC.Tc.Types.Evidence
+import GHC.Core.Predicate
+import GHC.Core.TyCo.Rep
 
-import UniqSet             (unionUniqSets)
-#if __GLASGOW_HASKELL__ < 82
-import UniqSet             (uniqSetToList)
-#else
-import UniqSet             (nonDetEltsUniqSet)
-#endif
-
-import TcType              (TcLevel, isTouchableMetaTyVar)
-
-import Outputable (Outputable (..), (<+>), ($$), text, ppr, pprTrace)
-import Plugins    (Plugin (..), defaultPlugin)
-import TcEvidence (EvTerm (..))
-import TcPluginM  (TcPluginM, tcPluginTrace, zonkCt, tcLookupTyCon, tcLookupDataCon,
-                   tcPluginIO)
-import TcRnMonad  (getTcLevel)
-import TcRnTypes  (Ct, TcPlugin (..), TcPluginResult(..), ShadowInfo(..), ctEvidence, ctEvPred,
-                   isWanted, mkNonCanonical, unsafeTcPluginTcM, ShadowInfo(..))
-import Type       (EqRel (NomEq), Kind, PredTree (EqPred, IrredPred, ClassPred), PredType,
-                   classifyPredType, eqType, getEqPredTys, mkTyVarTy, mkPrimEqPred, isCTupleClass, typeKind, mkTyConApp, TyVar)
-import Coercion   (CoercionHole, Role (..), mkForAllCos, mkHoleCo, mkInstCo,
-                   mkNomReflCo, mkUnivCo)
-import TcPluginM  (newCoercionHole, newFlexiTyVar)
-import TcRnTypes  (CtEvidence (..), CtLoc, TcEvDest (..), ctLoc)
-import TyCoRep    (UnivCoProvenance (..), Type (..))
-import FastString (fsLit)
-import GHC.TcPluginM.Extra (lookupModule, lookupName, newGiven, tracePlugin, evByFiat)
-import OccName    (mkTcOcc, mkDataOcc, mkClsOcc)
-import Module     (mkModuleName)
-import DataCon (promoteDataCon, dataConWrapId)
-import TyCon (tyConKind, tyConResKind, tyConName, tyConUnique)
-import TysWiredIn  ( heqDataCon, heqTyCon )
+-- import FastString (fsLit)
 
 -- internal
 import Flame.Solver.Data
 import Flame.Solver.Unify
 import Flame.Solver.Norm
 import Flame.Solver.ActsFor
+import GHC (NamedThing(..))
+import GHC.Tc.Plugin
+import GHC.Tc.Solver.Monad
+import GHC.Tc.Utils.TcType
 
-#if __GLASGOW_HASKELL__ >= 82
-uniqSetToList = nonDetEltsUniqSet
-#endif
+-- #if __GLASGOW_HASKELL__ >= 82
+-- uniqSetToList = nonDetEltsUniqSet
+-- #endif
 
 
 plugin :: Plugin
 plugin = defaultPlugin { tcPlugin = const $ Just flamePlugin }
 
 flamePlugin :: TcPlugin
-flamePlugin = tracePlugin "flame"
+flamePlugin = -- tracePlugin "flame"
   TcPlugin { tcPluginInit  = lookupFlameRec
            , tcPluginSolve = decideActsFor
            , tcPluginStop  = \_ -> (return ())
@@ -93,30 +108,19 @@ flamePlugin = tracePlugin "flame"
 
 lookupFlameRec :: TcPluginM FlameRec
 lookupFlameRec = do
-    md         <- lookupModule flameModule flamePackage
-    kprinTcNm    <- lookupName md (mkTcOcc "KPrin")
-    actsforTcNm  <- lookupName md (mkTcOcc "≽")
-    ktopDataNm   <- lookupName md (mkDataOcc "KTop")
-    kbotDataNm   <- lookupName md (mkDataOcc "KBot")
-    knameDataNm  <- lookupName md (mkDataOcc "KName")
-    kconjDataNm  <- lookupName md (mkDataOcc "KConj")
-    kdisjDataNm  <- lookupName md (mkDataOcc "KDisj")
-    kconfDataNm  <- lookupName md (mkDataOcc "KConf")
-    kintegDataNm <- lookupName md (mkDataOcc "KInteg")
-    kvoiceDataNm <- lookupName md (mkDataOcc "KVoice")
-    keyeDataNm   <- lookupName md (mkDataOcc "KEye")
-    kprinTc    <- tcLookupTyCon kprinTcNm
-    actsforTc  <- tcLookupTyCon actsforTcNm
-    ktopData   <- promoteDataCon <$> tcLookupDataCon ktopDataNm
-    kbotData   <- promoteDataCon <$> tcLookupDataCon kbotDataNm
-    knameData  <- promoteDataCon <$> tcLookupDataCon knameDataNm
-    kconjData  <- promoteDataCon <$> tcLookupDataCon kconjDataNm
-    kdisjData  <- promoteDataCon <$> tcLookupDataCon kdisjDataNm
-    kconfData  <- promoteDataCon <$> tcLookupDataCon kconfDataNm
-    kintegData <- promoteDataCon <$> tcLookupDataCon kintegDataNm
-    kvoiceData <- promoteDataCon <$> tcLookupDataCon kvoiceDataNm
-    keyeData   <- promoteDataCon <$> tcLookupDataCon keyeDataNm
-    level    <- unsafeTcPluginTcM getTcLevel
+    md         <- lookupModule flameModule Nothing --flamePackage
+    kprinTc    <- tcLookupTyCon (getName $ mkTcOcc "KPrin")
+    actsforTc  <- tcLookupTyCon (getName $ mkTcOcc "≽")
+    ktopData   <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KTop")  
+    kbotData   <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KBot")  
+    knameData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KName")
+    kconjData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KConj")
+    kdisjData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KDisj")
+    kconfData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KConf")
+    kintegData <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KInteg")
+    kvoiceData <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KVoice")
+    keyeData   <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KEye")
+    (level,_)    <- unsafeTcPluginTcM $ runTcS getTcLevel
     return FlameRec{
        kprin      = kprinTc
     ,  actsfor    = actsforTc
@@ -129,8 +133,8 @@ lookupFlameRec = do
     ,  kinteg     = kintegData
     ,  kvoice     = kvoiceData
     ,  keye       = keyeData
-    ,  confBounds   = empty
-    ,  integBounds  = empty
+    ,  confBounds   = M.empty
+    ,  integBounds  = M.empty
     ,  confClosure  = []
     ,  integClosure = []
     ,  tclevel      = level
@@ -143,7 +147,7 @@ decideActsFor :: FlameRec -> [Ct] -> [Ct] -> [Ct]
                -> TcPluginM TcPluginResult
 decideActsFor _ _givens _deriveds []      = return (TcPluginOk [] [])
 decideActsFor _flrec givens  _deriveds wanteds = do
-    level <- unsafeTcPluginTcM getTcLevel
+    (level, _) <- unsafeTcPluginTcM $ runTcS getTcLevel
     let flrec = _flrec{tclevel = level}
     -- GHC 7.10.1 puts deriveds with the wanteds, so filter them out
     let wanteds' = filter (isWanted . ctEvidence) wanteds
@@ -207,12 +211,12 @@ solvePrins flrec givens afcts =
     confAFToVarDeps = fromList $ map (\(i, (ct, af@(N p _, N q _))) -> ((i, af), touchableFVs q)) $ indexedAFCTs 
     confVarToAFDeps = foldl (\deps (iaf, vars) -> 
                               unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
-                            empty $ toList confAFToVarDeps
+                            M.empty $ toList confAFToVarDeps
 
     integAFToVarDeps = fromList $ map (\(i, (ct, af@(N _ p, N _ q))) -> ((i, af), touchableFVs q)) $ indexedAFCTs 
     integVarToAFDeps = foldl (\deps (iaf, vars) -> 
                               unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
-                             empty $ toList integAFToVarDeps
+                             M.empty $ toList integAFToVarDeps
 
     touchableFVs p = [ v | v <- uniqSetToList $ fvJNorm p, isTouchableMetaTyVar (tclevel flrec) v ]
 
@@ -383,7 +387,7 @@ evMagic flrec cts preds =
                   let ctEv = mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af'
                   forallEv <- mkForAllCos <$> (replicateM (length preds) kprinCoBndr) <*> pure ctEv
                   let finalEv = foldl mkInstCo forallEv holeEvs
-                  return $ Just (EvDFunApp (dataConWrapId heqDataCon)
+                  return $ Just (evDFunApp (dataConWrapId heqDataCon)
                                 [typeKind p, typeKind q, p, q]
                                 [evByFiat "flame" p q] `EvCast` finalEv, ct')
                 _ -> return Nothing) afcts

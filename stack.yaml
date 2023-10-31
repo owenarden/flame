@@ -15,7 +15,14 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: lts-12.11
+resolver: lts-21.19
+
+
+ghc-options:
+  "$locals": -package ghc -Wall
+#  "$everything": -O2
+#  "$targets": -Werror
+#  some-package: -DSOME_CPP_FLAG
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
