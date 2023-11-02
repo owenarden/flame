@@ -6,7 +6,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# OPTIONS_GHC -fplugin Flame.Solver #-}
+-- {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.IO
        {- TODO: interface -}

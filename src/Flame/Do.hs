@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -fplugin Flame.Solver #-}
+-- {-# OPTIONS_GHC -fplugin Flame.Solver -fobject-code #-}
 
 ----------------------------------------------------------------------------
 ---- Based on Language.Haskell.IndexedDo by Fumiaki Kinoshita

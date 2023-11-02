@@ -5,7 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# OPTIONS_GHC -fplugin Flame.Solver #-}
+-- {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.Crypto.KeyedPrincipal where
 

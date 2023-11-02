@@ -4,3 +4,5 @@
 *.dyn_hi
 dist/
 .stack-work/
+hasktags
+warning.txt

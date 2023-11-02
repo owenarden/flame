@@ -30,71 +30,39 @@ module Flame.Solver
 where
 
 -- external
-import Control.Arrow              (second)
-import Control.Monad              (replicateM, msum)
+import Control.Monad              (replicateM)
 import Data.List                  (partition)
 import qualified Data.Set as S    (union, empty, singleton, notMember, toList)
 import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
-import Data.Map.Strict as M       (Map, foldlWithKey, empty, fromList, unionWith, findWithDefault, union, keys, toList, mapWithKey, keysSet, elems, lookup, singleton)
+import Data.Map.Strict as M       (Map, empty, fromList, unionWith, findWithDefault, toList, keysSet)
 -- GHC API
-import GHC (lookupModule, lookupName)
 import GHC.Plugins hiding (TcPlugin)
---    ( Plugin(tcPlugin),
---      heqDataCon,
---      heqTyCon,
---      mkForAllCos,
---      mkHoleCo,
---      mkInstCo,
---      mkNomReflCo,
---      mkPrimEqPred,
---      mkUnivCo,
---      dataConWrapId,
---      promoteDataCon,
---      mkTyVarTy,
---      mkTyConApp,
---      typeKind,
---      fsLit,
---      defaultPlugin,
---      pprTrace,
---      mkDataOcc,
---      mkTcOcc,
---      uniqSets
---      unionUniqSets,
---      mkModuleName,
---      Role(Representational),
---      CoercionHole,
---      PredType,
---      Type,
---      TyCon(tyConUnique),
---      -- TcPlugin,
---      TyVar,
---      Outputable(ppr) ) 
 import GHC.Tc.Types
-    ( TcPluginM,
-      unsafeTcPluginTcM,
-      TcPlugin(TcPlugin, tcPluginStop, tcPluginInit, tcPluginSolve),
-      TcPluginResult(TcPluginOk) )
+    ( TcPlugin(TcPlugin, tcPluginStop, tcPluginInit, tcPluginSolve), TcPluginSolveResult (..),
+      )
 import GHC.Tc.Types.Constraint
 import GHC.Tc.Types.Evidence
 import GHC.Core.Predicate
 import GHC.Core.TyCo.Rep
 
--- import FastString (fsLit)
 
 -- internal
 import Flame.Solver.Data
 import Flame.Solver.Unify
 import Flame.Solver.Norm
 import Flame.Solver.ActsFor
-import GHC (NamedThing(..))
 import GHC.Tc.Plugin
 import GHC.Tc.Solver.Monad
 import GHC.Tc.Utils.TcType
+import GHC.Utils.Trace (pprTrace)
 
--- #if __GLASGOW_HASKELL__ >= 82
--- uniqSetToList = nonDetEltsUniqSet
--- #endif
-
+-- | The 'EvTerm' equivalent for 'Unsafe.unsafeCoerce'
+evByFiat :: String -- ^ Name the coercion should have
+         -> Type   -- ^ The LHS of the equivalence relation (~)
+         -> Type   -- ^ The RHS of the equivalence relation (~)
+         -> EvTerm
+evByFiat name t1 t2 =
+  EvExpr $ Coercion $ mkUnivCo (PluginProv name) Nominal t1 t2
 
 plugin :: Plugin
 plugin = defaultPlugin { tcPlugin = const $ Just flamePlugin }
@@ -108,18 +76,21 @@ flamePlugin = -- tracePlugin "flame"
 
 lookupFlameRec :: TcPluginM FlameRec
 lookupFlameRec = do
-    md         <- lookupModule flameModule Nothing --flamePackage
-    kprinTc    <- tcLookupTyCon (getName $ mkTcOcc "KPrin")
-    actsforTc  <- tcLookupTyCon (getName $ mkTcOcc "≽")
-    ktopData   <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KTop")  
-    kbotData   <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KBot")  
-    knameData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KName")
-    kconjData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KConj")
-    kdisjData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KDisj")
-    kconfData  <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KConf")
-    kintegData <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KInteg")
-    kvoiceData <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KVoice")
-    keyeData   <- promoteDataCon <$> tcLookupDataCon (getName $ mkDataOcc "KEye")
+    res        <- findImportedModule prinModName NoPkgQual 
+    let prinMod = case res of
+                    Found modLoc mod -> mod
+                    _ -> error "bad"
+    kprinTc    <- tcLookupTyCon <$> lookupOrig prinMod (mkTcOcc "KPrin")
+    actsforTc  <- tcLookupTyCon <$> lookupOrig prinMod (mkTcOcc "≽")
+    ktopData   <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KTop"))
+    kbotData   <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KBot")  
+    knameData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KName")
+    kconjData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConj")
+    kdisjData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KDisj")
+    kconfData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConf")
+    kintegData <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KInteg")
+    kvoiceData <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KVoice")
+    keyeData   <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KEye")
     (level,_)    <- unsafeTcPluginTcM $ runTcS getTcLevel
     return FlameRec{
        kprin      = kprinTc
@@ -140,13 +111,13 @@ lookupFlameRec = do
     ,  tclevel      = level
     }
   where
-    flameModule  = mkModuleName "Flame.Principals"
+    prinModName = mkModuleName "Flame.Principals"
     flamePackage = fsLit "flame"
 
-decideActsFor :: FlameRec -> [Ct] -> [Ct] -> [Ct]
-               -> TcPluginM TcPluginResult
-decideActsFor _ _givens _deriveds []      = return (TcPluginOk [] [])
-decideActsFor _flrec givens  _deriveds wanteds = do
+decideActsFor :: FlameRec -> EvBindsVar -> [Ct] -> [Ct]
+               -> TcPluginM TcPluginSolveResult
+decideActsFor _ ev_binds_var _givens []      = return (TcPluginOk [] [])
+decideActsFor _flrec ev_binds_var givens  wanteds = do
     (level, _) <- unsafeTcPluginTcM $ runTcS getTcLevel
     let flrec = _flrec{tclevel = level}
     -- GHC 7.10.1 puts deriveds with the wanteds, so filter them out
@@ -199,7 +170,7 @@ solvePrins flrec givens afcts =
                  confBounds = initVarMap, integBounds = initVarMap}
            indexedAFs
   where
-    allVars = concat [uniqSetToList $ fvNorm p `unionUniqSets` fvNorm q | (ct, (p, q)) <- afcts]
+    allVars = concat [nonDetEltsUniqSet $ fvNorm p `unionUniqSets` fvNorm q | (ct, (p, q)) <- afcts]
 
     initVarMap :: Map TyVar CoreJNorm
     initVarMap = fromList $ map (\v -> (v, J [M [B]])) $ [v | v <- allVars, isTouchableMetaTyVar (tclevel flrec) v]
@@ -218,7 +189,7 @@ solvePrins flrec givens afcts =
                               unionWith (S.union) (fromList [(v, S.singleton iaf) | v <- vars]) deps)
                              M.empty $ toList integAFToVarDeps
 
-    touchableFVs p = [ v | v <- uniqSetToList $ fvJNorm p, isTouchableMetaTyVar (tclevel flrec) v ]
+    touchableFVs p = [ v | v <- nonDetEltsUniqSet $ fvJNorm p, isTouchableMetaTyVar (tclevel flrec) v ]
 
     solve :: FlameRec
             -> [(Int, (CoreNorm, CoreNorm))]
@@ -387,9 +358,9 @@ evMagic flrec cts preds =
                   let ctEv = mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af'
                   forallEv <- mkForAllCos <$> (replicateM (length preds) kprinCoBndr) <*> pure ctEv
                   let finalEv = foldl mkInstCo forallEv holeEvs
-                  return $ Just (evDFunApp (dataConWrapId heqDataCon)
-                                [typeKind p, typeKind q, p, q]
-                                [evByFiat "flame" p q] `EvCast` finalEv, ct')
+                  return $ Just undefined --(evDFunApp (dataConWrapId heqDataCon)
+                                          --[typeKind p, typeKind q, p, q]
+                                          --[evByFiat "flame" p q] `evCast` finalEv, ct')
                 _ -> return Nothing) afcts
        
        return (catMaybes evs, newWanted)
@@ -398,11 +369,10 @@ unifyItemToCt :: CtLoc
               -> PredType
               -> CoercionHole
               -> Ct
-#if __GLASGOW_HASKELL__ < 82
-unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest hole) loc)
-#else
-unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest hole) WDeriv loc)
-#endif
+-- #if __GLASGOW_HASKELL__ < 82
+-- unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest hole) loc)
+-- #else
+unifyItemToCt loc pred_type hole = mkNonCanonical (CtWanted pred_type (HoleDest hole) loc emptyRewriterSet)
 
 mkHEqPred :: Type -> Type -> Type
 mkHEqPred t1 t2 = TyConApp heqTyCon [typeKind t1, typeKind t2, t1, t2]
@@ -410,13 +380,14 @@ mkHEqPred t1 t2 = TyConApp heqTyCon [typeKind t1, typeKind t2, t1, t2]
 -- | Used when we generate new constraints.
 -- The boolean indicates if we are generateing a given or
 -- a derived constraint.
-mkNewEqFact :: CtLoc -> (Type,Type) -> TcPluginM CtEvidence
-mkNewEqFact newLoc (t1,t2) = newGiven newLoc newPred (evByFiat "flame" t1 t2)
+mkNewEqFact :: EvBindsVar -> CtLoc -> (Type,Type) -> TcPluginM CtEvidence
+mkNewEqFact evbinds newLoc (t1,t2) = do 
+    newGiven evbinds newLoc newPred undefined -- (evByFiat "flame" t1 t2)
   where
   newPred = mkPrimEqPred t1 t2
 
-mkNewAFFact :: FlameRec -> CtLoc -> (Type,Type) -> TcPluginM CtEvidence
-mkNewAFFact flrec newLoc (t1,t2) = newGiven newLoc newPred (evByFiat "flame" t1 t2)
+mkNewAFFact :: FlameRec -> EvBindsVar -> CtLoc -> (Type,Type) -> TcPluginM CtEvidence
+mkNewAFFact flrec evbinds newLoc (t1,t2) = newGiven evbinds newLoc newPred undefined -- (evByFiat "flame" t1 t2)
   where
   newPred = mkTyConApp (actsfor flrec) [t1, t2]
 

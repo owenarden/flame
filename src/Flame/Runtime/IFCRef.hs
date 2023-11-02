@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes #-}
-{-# OPTIONS_GHC -fplugin Flame.Solver #-}
+-- {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.IFCRef
 where

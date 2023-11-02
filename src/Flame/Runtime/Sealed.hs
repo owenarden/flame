@@ -8,7 +8,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# OPTIONS_GHC -fplugin Flame.Solver #-}
+-- {-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 module Flame.Runtime.Sealed
  --      (Sealed, seal, withSealed, sealWith)

@@ -1,0 +1,28 @@
+{
+  "customLocalFormatters.formatters": [
+    {
+      "command": "make format",
+      "languages": [
+        "haskell"
+      ]
+    }
+  ],
+  "emeraldwalk.runonsave": {
+    "commands": [
+      {
+        "cmd": "make retag retag_file=${file}",
+        "isAsync": true,
+        "match": "*.hs"
+      },
+      {
+        "cmd": "make hpack",
+        "isAsync": true,
+        "match": "package.yaml"
+      }
+    ]
+  },
+  "ghcid.command": "make ghcid",
+  "goto-documentation.customDocs": {
+    "hs": "https://hoogle.haskell.org/?hoogle=${query}"
+  }
+}
