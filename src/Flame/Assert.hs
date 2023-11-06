@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE PostfixOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
--- {-# OPTIONS_GHC -fplugin Flame.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver -fobject-code #-}
 module Flame.Assert
 where
   
