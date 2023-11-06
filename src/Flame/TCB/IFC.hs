@@ -10,7 +10,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE InstanceSigs #-}
--- {-# OPTIONS_GHC -fplugin Flame.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver -fobject-code #-}
 
 module Flame.TCB.IFC where
 

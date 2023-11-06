@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
--- {-# OPTIONS_GHC -fplugin Flame.Solver #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver -fobject-code #-}
 
 module Flame.IFC
        ( Labeled(label, unlabel,relabel), Lbl

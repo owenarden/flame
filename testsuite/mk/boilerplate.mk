@@ -50,11 +50,11 @@ endef
 ifeq "$(TEST_HC)" ""
 
 # Note [Spaces in TEST_HC]
-#
+# ~~~~~~~~~~~~~~~~~~~~~~~~
 # Tests should be able to handle paths with spaces.
 #
 # One of the things ./validate (without --fast) does is check if binary
-# distributions can succesfully be installed and used in paths containing
+# distributions can successfully be installed and used in paths containing
 # spaces.
 #
 # It does so in the following way:
@@ -128,7 +128,7 @@ endif
 IN_TREE_COMPILER = NO
 
 # Note [The TEST_HC variable]
-#
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # As values of TEST_HC passed in by the user, we want to support:
 #  * both "ghc" and "/usr/bin/ghc"
 #      We use 'which' to convert the former to the latter.
@@ -217,10 +217,27 @@ $(eval $(call canonicalise,TOP_ABS))
 GS = gs
 CP = cp
 RM = rm -f
-PYTHON = python3
+PYTHON ?= python3
 
-CHECK_API_ANNOTATIONS := $(abspath $(TOP)/../inplace/bin/check-api-annotations)
-CHECK_PPR             := $(abspath $(TOP)/../inplace/bin/check-ppr)
+ifeq "$(CHECK_PPR)" ""
+CHECK_PPR := $(abspath $(TOP)/../inplace/bin/check-ppr)
+endif
+
+ifeq "$(CHECK_EXACT)" ""
+CHECK_EXACT := $(abspath $(TOP)/../inplace/bin/check-exact)
+endif
+
+ifeq "$(COUNT_DEPS)" ""
+COUNT_DEPS := $(abspath $(TOP)/../inplace/bin/count-deps)
+endif
+
+ifeq "$(LINT_NOTES)" ""
+LINT_NOTES := $(abspath $(TOP)/../inplace/bin/lint-notes)
+endif
+
+ifeq "$(LINT_WHITESPACE)" ""
+LINT_WHITESPACE := $(abspath $(TOP)/../inplace/bin/lint-whitespace)
+endif
 
 # -----------------------------------------------------------------------------
 # configuration of TEST_HC
@@ -229,20 +246,22 @@ CHECK_PPR             := $(abspath $(TOP)/../inplace/bin/check-ppr)
 # the results, and emits a little .mk file with make bindings for the values.
 # This way we cache the results for different values of $(TEST_HC)
 
-$(TOP)/mk/ghc-config : $(TOP)/mk/ghc-config.hs
+$(TOP)/ghc-config/ghc-config : $(TOP)/ghc-config/ghc-config.hs
 	"$(TEST_HC)" --make -o $@ $<
 
 empty=
 space=$(empty) $(empty)
-ghc-config-mk = $(TOP)/mk/ghcconfig$(subst $(space),_,$(subst :,_,$(subst /,_,$(subst \,_,$(TEST_HC))))).mk
+ifeq "$(ghc_config_mk)" ""
+ghc_config_mk = $(TOP)/mk/ghcconfig$(subst $(space),_,$(subst :,_,$(subst /,_,$(subst \,_,$(TEST_HC))))).mk
 
-$(ghc-config-mk) : $(TOP)/mk/ghc-config
-	$(TOP)/mk/ghc-config "$(TEST_HC)" >"$@"; if [ $$? != 0 ]; then $(RM) "$@"; exit 1; fi
+$(ghc_config_mk) : $(TOP)/ghc-config/ghc-config
+	$(TOP)/ghc-config/ghc-config "$(TEST_HC)" >"$@"; if [ "$$?" != "0" ]; then $(RM) "$@"; exit 1; fi
 # If the ghc-config fails, remove $@, and fail
+endif
 
 # Note: $(CLEANING) is not defined in the testsuite.
 ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
--include $(ghc-config-mk)
+-include $(ghc_config_mk)
 endif
 
 # Note [WayFlags]
@@ -285,3 +304,9 @@ else
 DARWIN = NO
 endif
 
+ifeq "$(HostOS)" "openbsd"
+# None required, dlopen and the like are in libc.
+LIBDL_NAME =
+else
+LIBDL_NAME = -ldl
+endif

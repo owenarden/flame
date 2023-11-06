@@ -43,6 +43,7 @@ Thumbs.db
 *.prof.sample.normalised
 *.run.stdout
 *.run.stderr
+*.dump-simpl
 
 *.hp
 tests/**/*.ps
@@ -109,6 +110,7 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /tests/boxy/T2193
 /tests/cabal/1750.hs
 /tests/cabal/1750.out
+/tests/cabal/T13703.package.conf/
 /tests/cabal/T1750.hs
 /tests/cabal/T1750.out
 /tests/cabal/cabal01/dist/
@@ -693,6 +695,7 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /tests/ffi/should_run/Capi_Ctype_002
 /tests/ffi/should_run/Capi_Ctype_A_001.hs
 /tests/ffi/should_run/Capi_Ctype_A_002.hs
+/tests/ffi/should_run/T493
 /tests/ffi/should_run/T1288
 /tests/ffi/should_run/T1679
 /tests/ffi/should_run/T2276
@@ -775,6 +778,7 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /tests/ghci/linking/dir004/
 /tests/ghci/linking/dir005/
 /tests/ghci/linking/dir006/
+/tests/ghci/linking/T14708scratch/
 /tests/ghci/prog001/C.hs
 /tests/ghci/prog001/D.hs
 /tests/ghci/prog002/A.hs
@@ -1275,6 +1279,7 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /tests/primops/should_run/T6135
 /tests/primops/should_run/T7689
 /tests/primops/should_run/T9430
+/tests/primops/should_run/T16164
 /tests/profiling/should_compile/prof001
 /tests/profiling/should_compile/prof002
 /tests/profiling/should_run/2592
@@ -1628,4 +1633,5 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /timeout/calibrate.out
 /timeout/dist/
 /timeout/install-inplace/
+/timeout/TimeMe
 /tests/typecheck/should_run/T11049

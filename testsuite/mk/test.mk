@@ -14,6 +14,10 @@
 #  CONFIG    -- use a different configuration file
 #  COMPILER  -- select a configuration file from config/
 #  THREADS   -- run n tests at once
+#  PLATFORM  -- if accepting a result, accept it for the current platform.
+#  OS        -- if accepting a result, accept it for all wordsizes of the
+#               current os.
+#  PERF_BASELINE_COMMIT - the baseline commit to use for performance tests.
 #
 # -----------------------------------------------------------------------------
 
@@ -22,8 +26,7 @@ export MAKE
 
 RUNTESTS     = $(TOP)/driver/runtests.py
 COMPILER     = ghc
-CONFIGDIR    = $(TOP)/config
-CONFIG       = $(CONFIGDIR)/$(COMPILER)
+CONFIG       = $(TOP)/config/$(COMPILER)
 
 ifeq "$(GhcUnregisterised)" "YES"
     # Otherwise C backend generates many warnings about
@@ -34,22 +37,21 @@ endif
 
 # TEST_HC_OPTS is passed to every invocation of TEST_HC
 # in nested Makefiles
-#TEST_HC_OPTS = -dcore-lint -dcmm-lint -no-user-$(GhcPackageDbFlag) -rtsopts $(EXTRA_HC_OPTS)
-#TEST_HC_OPTS = -dcore-lint -dcmm-lint -rtsopts $(EXTRA_HC_OPTS)
-TEST_HC_OPTS = -dcmm-lint -rtsopts $(EXTRA_HC_OPTS)
+TEST_HC_OPTS = -dcore-lint -dstg-lint -dcmm-lint \
+			   -no-user-package-db -rtsopts $(EXTRA_HC_OPTS)
 
-ifeq "$(MinGhcVersion711)" "YES"
 # Don't warn about missing specialisations. They can only occur with `-O`, but
 # we want tests to produce the same output for all test ways.
 TEST_HC_OPTS += -fno-warn-missed-specialisations
 TEST_HC_OPTS += -fshow-warning-groups
-endif
 
-ifeq "$(MinGhcVersion801)" "YES"
 # Turn off any VT800 codes in the output or they wreak havoc on the
 # testsuite output.
 TEST_HC_OPTS += -fdiagnostics-color=never
-endif
+TEST_HC_OPTS += -fno-diagnostics-show-caret
+
+# See #15278.
+TEST_HC_OPTS += -Werror=compat
 
 # Add the no-debug-output last as it is often convenient to copy the test invocation
 # removing this line.
@@ -74,49 +76,43 @@ else
 dllext = .so
 endif
 
-RUNTEST_OPTS += -e ghc_compiler_always_flags="'$(TEST_HC_OPTS)'"
+RUNTEST_OPTS += -e "ghc_compiler_always_flags='$(TEST_HC_OPTS)'"
 
-RUNTEST_OPTS += -e config.compiler_debugged=$(GhcDebugged)
+ifeq "$(GhcDebugged)" "YES"
+RUNTEST_OPTS += -e "config.compiler_debugged=True"
+else
+RUNTEST_OPTS += -e "config.compiler_debugged=False"
+endif
 
 ifeq "$(GhcWithNativeCodeGen)" "YES"
-RUNTEST_OPTS += -e ghc_with_native_codegen=1
+RUNTEST_OPTS += -e ghc_with_native_codegen=True
 else
-RUNTEST_OPTS += -e ghc_with_native_codegen=0
+RUNTEST_OPTS += -e ghc_with_native_codegen=False
 endif
 
-GHC_PRIM_LIBDIR := $(subst library-dirs: ,,$(shell "$(GHC_PKG)" field ghc-prim library-dirs --simple-output))
-HAVE_VANILLA := $(shell if [ -f $(subst \,/,$(GHC_PRIM_LIBDIR))/GHC/PrimopWrappers.hi ]; then echo YES; else echo NO; fi)
-HAVE_DYNAMIC := $(shell if [ -f $(subst \,/,$(GHC_PRIM_LIBDIR))/GHC/PrimopWrappers.dyn_hi ]; then echo YES; else echo NO; fi)
-HAVE_PROFILING := $(shell if [ -f $(subst \,/,$(GHC_PRIM_LIBDIR))/GHC/PrimopWrappers.p_hi ]; then echo YES; else echo NO; fi)
-
-ifeq "$(HAVE_VANILLA)" "YES"
-RUNTEST_OPTS += -e config.have_vanilla=True
+ifeq "$(GhcLeadingUnderscore)" "YES"
+RUNTEST_OPTS += -e "config.leading_underscore=True"
 else
-RUNTEST_OPTS += -e config.have_vanilla=False
+RUNTEST_OPTS += -e "config.leading_underscore=False"
 endif
 
-ifeq "$(HAVE_DYNAMIC)" "YES"
-RUNTEST_OPTS += -e config.have_dynamic=True
-else
-RUNTEST_OPTS += -e config.have_dynamic=False
-endif
+HAVE_GDB := $(shell if gdb --version > /dev/null 2> /dev/null; then echo YES; else echo NO; fi)
+HAVE_READELF := $(shell if readelf --version > /dev/null 2> /dev/null; then echo YES; else echo NO; fi)
 
-ifeq "$(HAVE_PROFILING)" "YES"
-RUNTEST_OPTS += -e config.have_profiling=True
-else
-RUNTEST_OPTS += -e config.have_profiling=False
-endif
+# we need a better way to find which backend is selected and if --check flag is
+# used
+BIGNUM_GMP := $(shell "$(GHC_PKG)" field ghc-bignum exposed-modules | grep GMP)
 
 ifeq "$(filter thr, $(GhcRTSWays))" "thr"
-RUNTEST_OPTS += -e ghc_with_threaded_rts=1
+RUNTEST_OPTS += -e ghc_with_threaded_rts=True
 else
-RUNTEST_OPTS += -e ghc_with_threaded_rts=0
+RUNTEST_OPTS += -e ghc_with_threaded_rts=False
 endif
 
 ifeq "$(filter dyn, $(GhcRTSWays))" "dyn"
-RUNTEST_OPTS += -e ghc_with_dynamic_rts=1
+RUNTEST_OPTS += -e ghc_with_dynamic_rts=True
 else
-RUNTEST_OPTS += -e ghc_with_dynamic_rts=0
+RUNTEST_OPTS += -e ghc_with_dynamic_rts=False
 endif
 
 ifeq "$(GhcWithInterpreter)" "NO"
@@ -133,13 +129,25 @@ else
 RUNTEST_OPTS += -e config.unregisterised=False
 endif
 
-ifeq "$(GhcDynamicByDefault)" "YES"
-RUNTEST_OPTS += -e config.ghc_dynamic_by_default=True
-CABAL_MINIMAL_BUILD = --enable-shared --disable-library-vanilla
+ifeq "$(HAVE_GDB)" "YES"
+RUNTEST_OPTS += -e config.have_gdb=True
 else
-RUNTEST_OPTS += -e config.ghc_dynamic_by_default=False
-CABAL_MINIMAL_BUILD = --enable-library-vanilla --disable-shared
+RUNTEST_OPTS += -e config.have_gdb=False
 endif
+
+ifeq "$(HAVE_READELF)" "YES"
+RUNTEST_OPTS += -e config.have_readelf=True
+else
+RUNTEST_OPTS += -e config.have_readelf=False
+endif
+
+ifeq "$(BIGNUM_GMP)" ""
+RUNTEST_OPTS += -e config.have_fast_bignum=False
+else
+RUNTEST_OPTS += -e config.have_fast_bignum=True
+endif
+
+CABAL_MINIMAL_BUILD = --enable-library-vanilla --disable-shared
 
 ifeq "$(GhcDynamic)" "YES"
 RUNTEST_OPTS += -e config.ghc_dynamic=True
@@ -150,21 +158,18 @@ CABAL_PLUGIN_BUILD = --enable-library-vanilla --disable-shared
 endif
 
 ifeq "$(GhcWithSMP)" "YES"
-RUNTEST_OPTS += -e ghc_with_smp=1
+RUNTEST_OPTS += -e ghc_with_smp=True
 else
-RUNTEST_OPTS += -e ghc_with_smp=0
+RUNTEST_OPTS += -e ghc_with_smp=False
 endif
 
-ifeq "$(LLC)" ""
-RUNTEST_OPTS += -e ghc_with_llvm=0
-else ifeq "$(TargetARCH_CPP)" "powerpc"
-RUNTEST_OPTS += -e ghc_with_llvm=0
-else ifneq "$(LLC)" "llc"
-# If we have a real detected value for LLVM, then it really ought to work
-RUNTEST_OPTS += -e ghc_with_llvm=1
+ifeq "$(GhcWithRtsLinker)" "YES"
+RUNTEST_OPTS += -e config.have_RTS_linker=True
 else
-RUNTEST_OPTS += -e ghc_with_llvm=0
+RUNTEST_OPTS += -e config.have_RTS_linker=False
 endif
+
+RUNTEST_OPTS += -e config.libdir="r\"$(GhcLibdir)\""
 
 ifeq "$(WINDOWS)" "YES"
 RUNTEST_OPTS += -e windows=True
@@ -188,12 +193,28 @@ ifneq "$(THREADS)" ""
 RUNTEST_OPTS += --threads=$(THREADS)
 endif
 
+ifneq "$(PACKAGE_DB)" ""
+RUNTEST_OPTS += --test-package-db=$(PACKAGE_DB)
+endif
+
 ifneq "$(VERBOSE)" ""
 RUNTEST_OPTS += --verbose=$(VERBOSE)
 endif
 
+ifneq "$(PERF_TEST_BASELINE_COMMIT)" ""
+RUNTEST_OPTS += --perf-baseline=$(PERF_TEST_BASELINE_COMMIT)
+endif
+
 ifeq "$(SKIP_PERF_TESTS)" "YES"
 RUNTEST_OPTS += --skip-perf-tests
+endif
+
+ifeq "$(ONLY_PERF_TESTS)" "YES"
+RUNTEST_OPTS += --only-perf-tests
+endif
+
+ifneq "$(TEST_ENV)" ""
+RUNTEST_OPTS += --test-env="$(TEST_ENV)"
 endif
 
 ifeq "$(CLEANUP)" "0"
@@ -215,15 +236,14 @@ endif
 
 RUNTEST_OPTS +=  \
 	--rootdir=. \
-	--configfile=$(CONFIG) \
-	-e 'config.confdir="$(CONFIGDIR)"' \
+	--config-file=$(CONFIG) \
+	--top="$(TOP_ABS)" \
 	-e 'config.platform="$(TARGETPLATFORM)"' \
 	-e 'config.os="$(TargetOS_CPP)"' \
 	-e 'config.arch="$(TargetARCH_CPP)"' \
 	-e 'config.wordsize="$(WORDSIZE)"' \
 	-e 'config.timeout=int($(TIMEOUT)) or config.timeout' \
-	-e 'config.exeext="$(exeext)"' \
-	-e 'config.top="$(TOP_ABS)"'
+	-e 'config.exeext="$(exeext)"'
 
 # Wrap non-empty program paths in quotes, because they may contain spaces. Do
 # it here, so we don't have to (and don't forget to do it) in the .T test
@@ -245,15 +265,30 @@ RUNTEST_OPTS +=  \
 	--config 'gs=$(call quote_path,$(GS))' \
 	--config 'timeout_prog=$(call quote_path,$(TIMEOUT_PROGRAM))'
 
+RUNTEST_OPTS += --config 'stats_files_dir=$(TOP)/tests/perf/haddock'
+
 RUNTEST_OPTS += -e "config.stage=$(GhcStage)"
 
+ifneq "$(METRICS_FILE)" ""
+RUNTEST_OPTS +=  \
+	--metrics-file "$(METRICS_FILE)"
+endif
+ifneq "$(JUNIT_FILE)" ""
+RUNTEST_OPTS +=  \
+  --junit "$(JUNIT_FILE)"
+endif
 ifneq "$(SUMMARY_FILE)" ""
 RUNTEST_OPTS +=  \
 	--summary-file "$(SUMMARY_FILE)"
 endif
 ifeq "$(NO_PRINT_SUMMARY)" "YES"
 RUNTEST_OPTS +=  \
-	--no-print-summary 1
+	--no-print-summary
+endif
+
+ifneq "$(PERF_BASELINE_COMMIT)" ""
+RUNTEST_OPTS +=  \
+	--perf-baseline "$(PERF_BASELINE_COMMIT)"
 endif
 
 RUNTEST_OPTS +=  \
@@ -276,7 +311,16 @@ setspeed =
 endif
 
 ifeq "$(accept)" "YES"
-setaccept = -e config.accept=1
+setaccept = -e config.accept=True
+
+ifeq "$(PLATFORM)" "YES"
+setaccept += -e config.accept_platform=True
+endif
+
+ifeq "$(OS)" "YES"
+setaccept += -e config.accept_os=True
+endif
+
 else
 setaccept =
 endif
@@ -322,7 +366,7 @@ list_broken:
 	$(MAKE) list_broken=YES
 
 # Note [Communicating options and variables to a submake]
-#
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Consider the following scenario:
 #   * A test foo is defined as
 #     test('foo', [], run_command, ['$MAKE footarget'])

@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
--- {-# OPTIONS_GHC -fplugin Flame.Solver -fobject-code #-}
+{-# OPTIONS_GHC -fplugin Flame.Solver #-}
 
 ----------------------------------------------------------------------------
 ---- Based on Language.Haskell.IndexedDo by Fumiaki Kinoshita
@@ -48,7 +48,7 @@ myParseHsExp = parseResultToEither . parseExpWithMode myDefaultParseMode2
 
 flame :: QuasiQuoter
 flame = QuasiQuoter { quoteExp = \str -> case myParseExp str of
-        Right (DoE ss) -> return (go ss)
+        Right (DoE Nothing ss) -> return (go ss)
         Right _ -> fail "Expecting do notation"
         Left err -> fail (show err)
         , quotePat = undefined

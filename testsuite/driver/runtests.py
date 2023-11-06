@@ -4,18 +4,19 @@
 # (c) Simon Marlow 2002
 #
 
-from __future__ import print_function
-
+import argparse
 import signal
 import sys
 import os
-import string
-import getopt
-import platform
+import io
+import operator
 import shutil
 import tempfile
 import time
 import re
+import traceback
+from functools import reduce
+from pathlib import Path
 
 # We don't actually need subprocess in runtests.py, but:
 # * We do need it in testlibs.py
@@ -25,123 +26,151 @@ import re
 # So we import it here first, so that the testsuite doesn't appear to fail.
 import subprocess
 
-PYTHON3 = sys.version_info >= (3, 0)
-
-from testutil import *
-from testglobals import *
+from testutil import getStdout, Watcher, str_warn, str_info, print_table, shorten_metric_name
+from testglobals import getConfig, ghc_env, getTestRun, TestConfig, \
+                        TestOptions, brokens, PerfMetric
+from my_typing import TestName
+from perf_notes import MetricChange, GitRef, inside_git_repo, is_worktree_dirty, format_perf_stat, get_abbrev_hash_length, is_commit_hash
+from junit import junit
+import term_color
+from term_color import Color, colored
+import cpu_features
 
 # Readline sometimes spews out ANSI escapes for some values of TERM,
 # which result in test failures. Thus set TERM to a nice, simple, safe
 # value.
 os.environ['TERM'] = 'vt100'
+ghc_env['TERM'] = 'vt100'
 
 global config
 config = getConfig() # get it from testglobals
+config.validate()
 
 def signal_handler(signal, frame):
-        stopNow()
+    stopNow()
+
+def get_compiler_info() -> TestConfig:
+    """ Overriddden by configuration file. """
+    raise NotImplementedError
 
 # -----------------------------------------------------------------------------
 # cmd-line options
 
-long_options = [
-  "configfile=",	# config file
-  "config=",  		# config field
-  "rootdir=", 		# root of tree containing tests (default: .)
-  "summary-file=",      # file in which to save the (human-readable) summary
-  "no-print-summary=",  # should we print the summary?
-  "only=",		# just this test (can be give multiple --only= flags)
-  "way=",		# just this way
-  "skipway=",		# skip this way
-  "threads=",           # threads to run simultaneously
-  "check-files-written", # check files aren't written by multiple tests
-  "verbose=",          # verbose (0,1,2 so far)
-  "skip-perf-tests",       # skip performance tests
-  ]
+parser = argparse.ArgumentParser(description="GHC's testsuite driver")
+perf_group = parser.add_mutually_exclusive_group()
 
-opts, args = getopt.getopt(sys.argv[1:], "e:", long_options)
-       
-for opt,arg in opts:
-    if opt == '--configfile':
+parser.add_argument("-e", action='append', help="A string to execute from the command line.")
+parser.add_argument("--top", type=Path, help="path to top of testsuite/ tree")
+parser.add_argument("--config-file", action="append", help="config file")
+parser.add_argument("--config", action='append', help="config field")
+parser.add_argument("--rootdir", action='append', help="root of tree containing tests (default: .)")
+parser.add_argument("--metrics-file", help="file in which to save (append) the performance test metrics. If omitted, git notes will be used.")
+parser.add_argument("--summary-file", help="file in which to save the (human-readable) summary")
+parser.add_argument("--no-print-summary", action="store_true", help="should we print the summary?")
+parser.add_argument("--only", action="append", help="just this test (can be give multiple --only= flags)")
+parser.add_argument("--way", action="append", help="just this way")
+parser.add_argument("--skipway", action="append", help="skip this way")
+parser.add_argument("--threads", type=int, help="threads to run simultaneously")
+parser.add_argument("--verbose", type=int, choices=[0,1,2,3,4,5], help="verbose (Values 0 through 5 accepted)")
+parser.add_argument("--junit", type=argparse.FileType('wb'), help="output testsuite summary in JUnit format")
+parser.add_argument("--broken-test", action="append", default=[], help="a test name to mark as broken for this run")
+parser.add_argument("--test-env", default='local', help="Override default chosen test-env.")
+parser.add_argument("--perf-baseline", type=GitRef, metavar='COMMIT', help="Baseline commit for performance comparsons.")
+parser.add_argument("--test-package-db", dest="test_package_db", action="append", help="Package db providing optional packages used by the testsuite.")
+perf_group.add_argument("--skip-perf-tests", action="store_true", help="skip performance tests")
+perf_group.add_argument("--only-perf-tests", action="store_true", help="Only do performance tests")
+parser.add_argument("--ignore-perf-failures", choices=['increases','decreases','all'],
+                        help="Do not fail due to out-of-tolerance perf tests")
+parser.add_argument("--only-report-hadrian-deps", type=argparse.FileType('w'),
+                        help="Dry run the testsuite and report all extra hadrian depenedencies needed on the given file")
+
+args = parser.parse_args()
+
+# Initialize variables that are set by the build system with -e
+windows = False
+darwin = False
+
+if args.e:
+    for e in args.e:
+        exec(e)
+
+if args.config_file:
+    for arg in args.config_file:
         exec(open(arg).read())
 
-    # -e is a string to execute from the command line.  For example:
-    # testframe -e 'config.compiler=ghc-5.04'
-    if opt == '-e':
-        exec(arg)
-
-    if opt == '--config':
+if args.config:
+    for arg in args.config:
         field, value = arg.split('=', 1)
         setattr(config, field, value)
 
-    if opt == '--rootdir':
-        config.rootdirs.append(arg)
+all_ways = config.run_ways+config.compile_ways+config.other_ways
 
-    if opt == '--summary-file':
-        config.summary_file = arg
+if args.rootdir:
+    config.rootdirs = args.rootdir
 
-    if opt == '--no-print-summary':
-        config.no_print_summary = True
+config.metrics_file = args.metrics_file
+hasMetricsFile = config.metrics_file is not None
+config.summary_file = args.summary_file
+config.no_print_summary = args.no_print_summary
+config.baseline_commit = args.perf_baseline
 
-    if opt == '--only':
-        config.run_only_some_tests = True
-        config.only.add(arg)
+if args.top:
+    config.top = args.top
 
-    if opt == '--way':
-        if (arg not in config.run_ways and arg not in config.compile_ways and arg not in config.other_ways):
-            sys.stderr.write("ERROR: requested way \'" +
-                             arg + "\' does not exist\n")
-            sys.exit(1)
-        config.cmdline_ways = [arg] + config.cmdline_ways
-        if (arg in config.other_ways):
-            config.run_ways = [arg] + config.run_ways
-            config.compile_ways = [arg] + config.compile_ways
+if args.test_package_db:
+    config.test_package_db = args.test_package_db
 
-    if opt == '--skipway':
-        if (arg not in config.run_ways and arg not in config.compile_ways and arg not in config.other_ways):
-            sys.stderr.write("ERROR: requested way \'" +
-                             arg + "\' does not exist\n")
-            sys.exit(1)
-        config.other_ways = [w for w in config.other_ways if w != arg]
-        config.run_ways = [w for w in config.run_ways if w != arg]
-        config.compile_ways = [w for w in config.compile_ways if w != arg]
+if args.only:
+    config.only = args.only
+    config.run_only_some_tests = True
 
-    if opt == '--threads':
-        config.threads = int(arg)
-        config.use_threads = 1
+if args.way:
+    for way in args.way:
+        if way not in all_ways:
+            print('WARNING: Unknown WAY %s in --way' % way)
+        else:
+            config.cmdline_ways += [way]
+            if way in config.other_ways:
+                config.run_ways += [way]
+                config.compile_ways += [way]
 
-    if opt == '--skip-perf-tests':
-        config.skip_perf_tests = True
+if args.skipway:
+    for way in args.skipway:
+        if way not in all_ways:
+            print('WARNING: Unknown WAY %s in --skipway' % way)
 
-    if opt == '--verbose':
-        if arg not in ["0","1","2","3","4"]:
-            sys.stderr.write("ERROR: requested verbosity %s not supported, use 0,1,2,3 or 4" % arg)
-            sys.exit(1)
-        config.verbose = int(arg)
+    config.other_ways = [w for w in config.other_ways if w not in args.skipway]
+    config.run_ways = [w for w in config.run_ways if w not in args.skipway]
+    config.compile_ways = [w for w in config.compile_ways if w not in args.skipway]
+
+config.broken_tests |= {TestName(t) for t in args.broken_test}
+
+if args.threads:
+    config.threads = args.threads
+    config.use_threads = True
+
+if args.verbose is not None:
+    config.verbose = args.verbose
+
+config.only_report_hadrian_deps = args.only_report_hadrian_deps
 
 
-if config.use_threads == 1:
-    # Trac #1558 says threads don't work in python 2.4.4, but do
-    # in 2.5.2. Probably >= 2.5 is sufficient, but let's be
-    # conservative here.
-    # Some versions of python have things like '1c1' for some of
-    # these components (see trac #3091), but int() chokes on the
-    # 'c1', so we drop it.
-    (maj, min, pat) = platform.python_version_tuple()
-    # We wrap maj, min, and pat in str() to work around a bug in python
-    # 2.6.1
-    maj = int(re.sub('[^0-9].*', '', str(maj)))
-    min = int(re.sub('[^0-9].*', '', str(min)))
-    pat = int(re.sub('[^0-9].*', '', str(pat)))
-    if (maj, min) < (2, 6):
-        print("Python < 2.6 is not supported")
-        sys.exit(1)
-    # We also need to disable threads for python 2.7.2, because of
-    # this bug: http://bugs.python.org/issue13817
-    elif (maj, min, pat) == (2, 7, 2):
-        print("Warning: Ignoring request to use threads as python version is 2.7.2")
-        print("See http://bugs.python.org/issue13817 for details.")
-        config.use_threads = 0
+# Note force skip perf tests: skip if this is not a git repo (estimated with inside_git_repo)
+# and no metrics file is given. In this case there is no way to read the previous commit's
+# perf test results, nor a way to store new perf test results.
+forceSkipPerfTests = not hasMetricsFile and not inside_git_repo()
+config.skip_perf_tests = args.skip_perf_tests or forceSkipPerfTests
+config.only_perf_tests = args.only_perf_tests
+if args.ignore_perf_failures == 'all':
+    config.ignore_perf_decreases = True
+    config.ignore_perf_increases = True
+elif args.ignore_perf_failures == 'increases':
+    config.ignore_perf_increases = True
+elif args.ignore_perf_failures == 'decreases':
+    config.ignore_perf_decreases = True
+
+if args.test_env:
+    config.test_env = args.test_env
 
 config.cygwin = False
 config.msys = False
@@ -164,7 +193,7 @@ if windows:
     import ctypes
     # Windows and mingw* Python provide windll, msys2 python provides cdll.
     if hasattr(ctypes, 'WinDLL'):
-        mydll = ctypes.WinDLL
+        mydll = ctypes.WinDLL    # type: ignore
     else:
         mydll = ctypes.CDLL
 
@@ -187,7 +216,7 @@ else:
     h.close()
     if v == '':
         # We don't, so now see if 'locale -a' works
-        h = os.popen('locale -a', 'r')
+        h = os.popen('locale -a | grep -F .', 'r')
         v = h.read()
         h.close()
         if v != '':
@@ -197,10 +226,29 @@ else:
             h.close()
             if v != '':
                 os.environ['LC_ALL'] = v
+                ghc_env['LC_ALL'] = v
                 print("setting LC_ALL to", v)
             else:
                 print('WARNING: No UTF8 locale found.')
                 print('You may get some spurious test failures.')
+
+# https://stackoverflow.com/a/22254892/1308058
+def supports_colors():
+    """
+    Returns True if the running system's terminal supports color, and False
+    otherwise.
+    """
+    plat = sys.platform
+    supported_platform = plat != 'Pocket PC' and (plat != 'win32' or
+                                                  'ANSICON' in os.environ)
+    # isatty is not always implemented, #6223.
+    is_a_tty = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+    if not supported_platform or not is_a_tty:
+        return False
+    return True
+
+config.supports_colors = supports_colors()
+term_color.enable_color = config.supports_colors
 
 # This has to come after arg parsing as the args can change the compiler
 get_compiler_info()
@@ -209,14 +257,36 @@ get_compiler_info()
 # enabled or not
 from testlib import *
 
+def format_path(path):
+    if windows:
+        if os.pathsep == ':':
+            # If using msys2 python instead of mingw we have to change the drive
+            # letter representation. Otherwise it thinks we're adding two env
+            # variables E and /Foo when we add E:/Foo.
+            path = re.sub('([a-zA-Z]):', '/\\1', path)
+        if config.cygwin:
+            # On cygwin we can't put "c:\foo" in $PATH, as : is a
+            # field separator. So convert to /cygdrive/c/foo instead.
+            # Other pythons use ; as the separator, so no problem.
+            path = re.sub('([a-zA-Z]):', '/cygdrive/\\1', path)
+            path = re.sub('\\\\', '/', path)
+    return path
+
 # On Windows we need to set $PATH to include the paths to all the DLLs
 # in order for the dynamic library tests to work.
-if windows or darwin:
-    pkginfo = str(getStdout([config.ghc_pkg, 'dump']))
+if windows:
+    try:
+        pkginfo = getStdout([config.ghc_pkg, 'dump'])
+    except FileNotFoundError as err:
+        # This can happen when we are only running tests which don't depend on ghc (ie linters)
+        # In that case we probably haven't built ghc-pkg yet so this query will fail.
+        print (err)
+        print ("Failed to call ghc-pkg for windows path modification... some tests might fail")
+        pkginfo = ""
     topdir = config.libdir
-    if windows:
-        mingw = os.path.join(topdir, '../mingw/bin')
-        os.environ['PATH'] = os.pathsep.join([os.environ.get("PATH", ""), mingw])
+    mingw = os.path.abspath(os.path.join(topdir, '../mingw/bin'))
+    mingw = format_path(mingw)
+    ghc_env['PATH'] = os.pathsep.join([ghc_env.get("PATH", ""), mingw])
     for line in pkginfo.split('\n'):
         if line.startswith('library-dirs:'):
             path = line.rstrip()
@@ -228,26 +298,29 @@ if windows or darwin:
             if path.startswith('"'):
                 path = re.sub('^"(.*)"$', '\\1', path)
                 path = re.sub('\\\\(.)', '\\1', path)
-            if windows:
-                if config.cygwin:
-                    # On cygwin we can't put "c:\foo" in $PATH, as : is a
-                    # field separator. So convert to /cygdrive/c/foo instead.
-                    # Other pythons use ; as the separator, so no problem.
-                    path = re.sub('([a-zA-Z]):', '/cygdrive/\\1', path)
-                    path = re.sub('\\\\', '/', path)
-                os.environ['PATH'] = os.pathsep.join([path, os.environ.get("PATH", "")])
-            else:
-                # darwin
-                os.environ['DYLD_LIBRARY_PATH'] = os.pathsep.join([path, os.environ.get("DYLD_LIBRARY_PATH", "")])
 
-global testopts_local
+                path = format_path(path)
+                ghc_env['PATH'] = os.pathsep.join([path, ghc_env.get("PATH", "")])
+
 testopts_local.x = TestOptions()
 
 # if timeout == -1 then we try to calculate a sensible value
 if config.timeout == -1:
-    config.timeout = int(read_no_crs(config.top + '/timeout/calibrate.out'))
+    config.timeout = int(read_no_crs(config.top / 'timeout' / 'calibrate.out'))
 
 print('Timeout is ' + str(config.timeout))
+print('Known ways: ' + ', '.join(config.other_ways))
+print('Run ways: ' + ', '.join(config.run_ways))
+print('Compile ways: ' + ', '.join(config.compile_ways))
+
+# Try get allowed performance changes from the git commit.
+try:
+    config.allowed_perf_changes = Perf.get_allowed_changes(config.baseline_commit)
+except subprocess.CalledProcessError:
+    print('Failed to get allowed metric changes from the HEAD git commit message.')
+
+
+print('Allowing performance changes in: ' + ', '.join(config.allowed_perf_changes.keys()))
 
 # -----------------------------------------------------------------------------
 # The main dude
@@ -259,20 +332,22 @@ t_files = list(findTFiles(config.rootdirs))
 
 print('Found', len(t_files), '.T files...')
 
-t = getTestRun()
+t = getTestRun() # type: TestRun
 
 # Avoid cmd.exe built-in 'date' command on Windows
-t.start_time = time.localtime()
+t.start_time = datetime.datetime.now()
 
-print('Beginning test run at', time.strftime("%c %Z",t.start_time))
+print('Beginning test run at', t.start_time.strftime("%c %Z"))
+
+# For reference
+try:
+    print('Detected CPU features: ', cpu_features.get_cpu_features())
+except Exception as e:
+    print('Failed to detect CPU features: ', e)
 
 sys.stdout.flush()
-if PYTHON3:
-    # in Python 3, we output text, which cannot be unbuffered
-    sys.stdout = os.fdopen(sys.__stdout__.fileno(), "w")
-else:
-    # set stdout to unbuffered (is this the best way to do it?)
-    sys.stdout = os.fdopen(sys.__stdout__.fileno(), "w", 0)
+# we output text, which cannot be unbuffered
+sys.stdout = os.fdopen(sys.__stdout__.fileno(), "w")
 
 if config.local:
     tempdir = ''
@@ -295,79 +370,245 @@ def cleanup_and_exit(exitcode):
         shutil.rmtree(tempdir, ignore_errors=True)
     exit(exitcode)
 
+def geometric_mean(xs):
+    if len(xs) > 0:
+      return reduce(operator.mul, xs)**(1. / len(xs))
+    else:
+      return 1
+
+def tabulate_metrics(metrics: List[PerfMetric]) -> None:
+    abbrevLen = get_abbrev_hash_length()
+    hasBaseline = any([x.baseline is not None for x in metrics])
+    baselineCommitSet = set([x.baseline.commit for x in metrics if x.baseline is not None])
+    hideBaselineCommit = not hasBaseline or len(baselineCommitSet) == 1
+    hideBaselineEnv = not hasBaseline or all(
+        [x.stat.test_env == x.baseline.perfStat.test_env
+         for x in metrics if x.baseline is not None])
+    def row(cells: Tuple[str, str, str, str, str, str, str, str]) -> List[str]:
+        return [x for (idx, x) in enumerate(list(cells)) if
+                (idx != 2 or not hideBaselineCommit) and
+                (idx != 3 or not hideBaselineEnv )]
+
+    headerRows = [
+        row(("", "", "Baseline", "Baseline", "Baseline", "", "", "")),
+        row(("Test", "Metric", "commit", "environment", "value", "New value", "Change", ""))
+    ]
+    def strDiff(x: PerfMetric) -> str:
+        if x.baseline is None:
+            return ""
+        val0 = x.baseline.perfStat.value
+        val1 = x.stat.value
+        return "{:+2.1f}%".format(100 * (val1 - val0) / val0)
+    dataRows = [row((
+        "{}({})".format(x.stat.test, x.stat.way),
+        shorten_metric_name(x.stat.metric),
+          "{}".format(x.baseline.commit[:abbrevLen]
+                      if is_commit_hash(x.baseline.commit) else x.baseline.commit)
+          if x.baseline is not None else "",
+        "{}".format(x.baseline.perfStat.test_env)
+          if x.baseline is not None else "",
+        "{:13,d}".format(int(x.baseline.perfStat.value))
+          if x.baseline is not None else "",
+        "{:13,d}".format(int(x.stat.value)),
+        strDiff(x),
+        "{}".format(x.change.hint())
+    )) for x in sorted(metrics, key =
+                      lambda m: (m.stat.test, m.stat.way, m.stat.metric))]
+    geoMean = geometric_mean([
+        x.stat.value / x.baseline.perfStat.value
+        for x in metrics
+        if x.baseline is not None
+    ])
+    dataRows += [
+        row(("", "", "", "", "", "", "", "")),
+        row(("geo. mean", "", "", "", "", "", "{:+4.1f}%".format(100*(geoMean-1)), ""))
+    ]
+    print_table(headerRows, dataRows, 1)
+    print("")
+    if hasBaseline:
+        if hideBaselineEnv:
+            print("* All baselines were measured in the same environment as this test run")
+        if hideBaselineCommit:
+            commit = next(iter(baselineCommitSet))
+            print("* All baseline commits are {}".format(
+                commit[:abbrevLen]
+                if is_commit_hash(commit) else commit
+            ))
+
 # First collect all the tests to be run
 t_files_ok = True
 for file in t_files:
-    if_verbose(2, '====> Scanning %s' % file)
+    if_verbose(3, '====> Scanning %s' % file)
     newTestDir(tempdir, os.path.dirname(file))
     try:
-        if PYTHON3:
-            with io.open(file, encoding='utf8') as f:
-                src = f.read()
-        else:
-            with open(file) as f:
-                src = f.read()
+        with io.open(file, encoding='utf8') as f:
+            src = f.read()
 
         exec(src)
     except Exception as e:
         traceback.print_exc()
-        framework_fail(file, '', str(e))
+        framework_fail(None, None, 'exception: %s' % e)
         t_files_ok = False
 
 for name in config.only:
     if t_files_ok:
         # See Note [Mutating config.only]
-        framework_fail(name, '', 'test not found')
+        framework_fail(name, None, 'test not found')
     else:
         # Let user fix .T file errors before reporting on unfound tests.
-        # The reson the test can not be found is likely because of those
+        # The reason the test can not be found is likely because of those
         # .T file errors.
         pass
 
 if config.list_broken:
-    global brokens
     print('')
     print('Broken tests:')
-    print(' '.join(map (lambda bdn: '#' + str(bdn[0]) + '(' + bdn[1] + '/' + bdn[2] + ')', brokens)))
+    print('\n  '.join('#{ticket}({a}/{b})'.format(ticket=ticket, a=a, b=b)
+                      for ticket, a, b in brokens))
     print('')
 
     if t.framework_failures:
-        print('WARNING:', len(framework_failures), 'framework failures!')
+        print('WARNING:', len(t.framework_failures), 'framework failures!')
         print('')
 else:
     # completion watcher
     watcher = Watcher(len(parallelTests))
 
     # Now run all the tests
-    for oneTest in parallelTests:
-        if stopping():
-            break
-        oneTest(watcher)
+    try:
+        for oneTest in parallelTests:
+            if stopping():
+                break
+            oneTest(watcher)
 
-    # wait for parallel tests to finish
-    if not stopping():
-        watcher.wait()
+        # wait for parallel tests to finish
+        if not stopping():
+            watcher.wait()
 
-    # Run the following tests purely sequential
-    config.use_threads = False
-    for oneTest in aloneTests:
-        if stopping():
-            break
-        oneTest(watcher)
+        # Run the following tests purely sequential
+        config.use_threads = False
+        for oneTest in aloneTests:
+            if stopping():
+                break
+            oneTest(watcher)
+    except KeyboardInterrupt:
+        pass
 
     # flush everything before we continue
     sys.stdout.flush()
 
-    summary(t, sys.stdout, config.no_print_summary)
+    # Dump metrics data.
+    print("\nPerformance Metrics (test environment: {}):\n".format(config.test_env))
+    if config.baseline_commit:
+        print('Performance baseline: %s\n' % config.baseline_commit)
+    if any(t.metrics):
+        # Group metrics by metric type
+        groups = {} # type: Dict[MetricName, List[PerfMetric]]
+        for m in t.metrics:
+            if m.stat.metric not in groups:
+                groups[m.stat.metric] = []
 
-    if config.summary_file != '':
-        with open(config.summary_file, 'w') as file:
-            summary(t, file)
+            groups[m.stat.metric].append(m)
 
-cleanup_and_exit(0)
+        for metric_name, stats in groups.items():
+            heading = 'Metrics: %s' % metric_name
+            print()
+            print(heading)
+            print('-' * len(heading))
+            print()
+            tabulate_metrics(stats)
+    else:
+        print("\nNone collected.")
+    print("")
+
+    # Warn if had to force skip perf tests (see Note force skip perf tests).
+    spacing = "       "
+    if forceSkipPerfTests and not args.skip_perf_tests:
+        print()
+        print(str_warn('Skipping All Performance Tests') + ' `git` exited with non-zero exit code.')
+        print(spacing + 'Git is required because performance test results are compared with ancestor git commits\' results (stored with git notes).')
+        print(spacing + 'You can still run the tests without git by specifying an output file with --metrics-file FILE.')
+
+    # Warn of new metrics.
+    new_metrics = [metric for (change, metric, baseline) in t.metrics if change == MetricChange.NewMetric]
+    if any(new_metrics):
+        if inside_git_repo():
+            reason = 'a baseline (expected value) cannot be recovered from' + \
+                ' previous git commits. This may be due to HEAD having' + \
+                ' new tests or having expected changes, the presence of' + \
+                ' expected changes since the last run of the tests, and/or' + \
+                ' the latest test run being too old.'
+            fix = 'If the tests exist on the previous' + \
+                ' commit (And are configured to run with the same ways),' + \
+                ' then check out that commit and run the tests to generate' + \
+                ' the missing metrics. Alternatively, a baseline may be' + \
+                ' recovered from ci results once fetched:\n\n' + \
+                spacing + 'git fetch ' + \
+                  'https://gitlab.haskell.org/ghc/ghc-performance-notes.git' + \
+                  ' refs/notes/perf:refs/notes/' + Perf.CiNamespace
+        else:
+            reason = "this is not a git repo so the previous git commit's" + \
+                     " metrics cannot be loaded from git notes:"
+            fix = ""
+        print()
+        print(str_warn('Missing Baseline Metrics') + \
+                ' these metrics trivially pass because ' + reason)
+        print(spacing + (' ').join(set([metric.test for metric in new_metrics])))
+        if fix != "":
+            print()
+            print(fix)
+
+    # Inform of how to accept metric changes.
+    if (len(t.unexpected_stat_failures) > 0):
+        print()
+        print(str_info("Some stats have changed") + " If this is expected, " + \
+            "allow changes by appending the git commit message with this:")
+        print('-' * 25)
+        print(Perf.allow_changes_string([(m.change, m.stat) for m in t.metrics]))
+        print('-' * 25)
+
+    summary(t, sys.stdout, config.no_print_summary, config.supports_colors)
+
+    # Write perf stats if any exist or if a metrics file is specified.
+    stats_metrics = [stat for (_, stat, __) in t.metrics] # type: List[PerfStat]
+    if hasMetricsFile:
+        print('Appending ' + str(len(stats_metrics)) + ' stats to file: ' + config.metrics_file)
+        with open(config.metrics_file, 'a') as f:
+            f.write("\n" + Perf.format_perf_stat(stats_metrics))
+    elif inside_git_repo() and any(stats_metrics):
+        if is_worktree_dirty():
+            print()
+            print(str_warn('Performance Metrics NOT Saved') + \
+                ' working tree is dirty. Commit changes or use ' + \
+                '--metrics-file to save metrics to a file.')
+        else:
+            Perf.append_perf_stat(stats_metrics)
+
+    # Write summary
+    if config.summary_file:
+        with open(config.summary_file, 'w') as f:
+            summary(t, f)
+
+    if args.junit:
+        junit(t).write(args.junit)
+
+    if config.only_report_hadrian_deps:
+      print("WARNING - skipping all tests and only reporting required hadrian dependencies:", config.hadrian_deps)
+      for d in config.hadrian_deps:
+        print(d,file=config.only_report_hadrian_deps)
+
+if len(t.unexpected_failures) > 0 or \
+   len(t.unexpected_stat_failures) > 0 or \
+   len(t.unexpected_passes) > 0 or \
+   len(t.framework_failures) > 0:
+    exitcode = 1
+else:
+    exitcode = 0
+
+cleanup_and_exit(exitcode)
 
 # Note [Running tests in /tmp]
-#
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Use LOCAL=0 to run tests in /tmp, to catch tests that use files from
 # the source directory without copying them to the test directory first.
 #

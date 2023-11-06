@@ -28,12 +28,12 @@ data PROCESS_INFORMATION = PROCESS_INFORMATION
 
 instance Storable PROCESS_INFORMATION where
     sizeOf = const #size PROCESS_INFORMATION
-    alignment = sizeOf
-    poke buf pi = do
-        (#poke PROCESS_INFORMATION, hProcess)    buf (piProcess   pi)
-        (#poke PROCESS_INFORMATION, hThread)     buf (piThread    pi)
-        (#poke PROCESS_INFORMATION, dwProcessId) buf (piProcessId pi)
-        (#poke PROCESS_INFORMATION, dwThreadId)  buf (piThreadId  pi)
+    alignment = const #alignment PROCESS_INFORMATION
+    poke buf pinfo = do
+        (#poke PROCESS_INFORMATION, hProcess)    buf (piProcess   pinfo)
+        (#poke PROCESS_INFORMATION, hThread)     buf (piThread    pinfo)
+        (#poke PROCESS_INFORMATION, dwProcessId) buf (piProcessId pinfo)
+        (#poke PROCESS_INFORMATION, dwThreadId)  buf (piThreadId  pinfo)
 
     peek buf = do
         vhProcess    <- (#peek PROCESS_INFORMATION, hProcess)    buf
@@ -67,7 +67,7 @@ data STARTUPINFO = STARTUPINFO
 
 instance Storable STARTUPINFO where
     sizeOf = const #size STARTUPINFO
-    alignment = sizeOf
+    alignment = const #alignment STARTUPINFO
     poke buf si = do
         (#poke STARTUPINFO, cb)              buf (siCb si)
         (#poke STARTUPINFO, lpDesktop)       buf (siDesktop si)
@@ -259,8 +259,6 @@ foreign import WINDOWS_CCONV unsafe "windows.h WaitForSingleObject"
 type JOBOBJECTINFOCLASS = CInt
 
 type PVOID = Ptr ()
-
-type ULONG_PTR  = CUIntPtr
 type PULONG_PTR = Ptr ULONG_PTR
 
 jobObjectExtendedLimitInformation :: JOBOBJECTINFOCLASS
@@ -292,6 +290,9 @@ cWAIT_TIMEOUT = #const WAIT_TIMEOUT
 
 cCREATE_SUSPENDED :: DWORD
 cCREATE_SUSPENDED = #const CREATE_SUSPENDED
+
+cHANDLE_FLAG_INHERIT :: DWORD
+cHANDLE_FLAG_INHERIT = #const HANDLE_FLAG_INHERIT
 
 foreign import WINDOWS_CCONV unsafe "windows.h GetExitCodeProcess"
     getExitCodeProcess :: HANDLE -> LPDWORD -> IO BOOL
@@ -325,13 +326,16 @@ foreign import WINDOWS_CCONV unsafe "windows.h CreateIoCompletionPort"
 foreign import WINDOWS_CCONV unsafe "windows.h GetQueuedCompletionStatus"
     getQueuedCompletionStatus :: HANDLE -> LPDWORD -> PULONG_PTR -> Ptr LPOVERLAPPED -> DWORD -> IO BOOL
 
+foreign import WINDOWS_CCONV unsafe "windows.h SetHandleInformation"
+    setHandleInformation :: HANDLE -> DWORD -> DWORD -> IO BOOL
+
 setJobParameters :: HANDLE -> IO BOOL
 setJobParameters hJob = alloca $ \p_jeli -> do
     let jeliSize = sizeOf (undefined :: JOBOBJECT_EXTENDED_LIMIT_INFORMATION)
 
     _ <- memset p_jeli 0 $ fromIntegral jeliSize
     -- Configure all child processes associated with the job to terminate when the
-    -- Last process in the job terminates. This prevent half dead processes and that
+    -- last handle to the job is closed. This prevent half dead processes and that
     -- hanging ghc-iserv.exe process that happens when you interrupt the testsuite.
     (#poke JOBOBJECT_EXTENDED_LIMIT_INFORMATION, BasicLimitInformation.LimitFlags)
       p_jeli cJOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
@@ -357,7 +361,7 @@ createCompletionPort hJob = do
                          return nullPtr
 
 waitForJobCompletion :: HANDLE -> HANDLE -> DWORD -> IO BOOL
-waitForJobCompletion hJob ioPort timeout
+waitForJobCompletion _hJob ioPort timeout
   = alloca $ \p_CompletionCode ->
     alloca $ \p_CompletionKey ->
     alloca $ \p_Overlapped -> do
@@ -369,21 +373,24 @@ waitForJobCompletion hJob ioPort timeout
         loop = do
           res <- getQueuedCompletionStatus ioPort p_CompletionCode p_CompletionKey
                                            p_Overlapped timeout
-          completionCode <- peek p_CompletionCode
+          case res of
+            False -> return ()
+            True  -> do
+                completionCode <- peek p_CompletionCode
+                if completionCode == cJOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
+                           then return ()
+                   else if completionCode == cJOB_OBJECT_MSG_EXIT_PROCESS
+                           then loop -- Debug point, do nothing for now
+                   else if completionCode == cJOB_OBJECT_MSG_NEW_PROCESS
+                           then loop -- Debug point, do nothing for now
+                           else loop
 
-          if completionCode == cJOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
-                     then return ()
-             else if completionCode == cJOB_OBJECT_MSG_EXIT_PROCESS
-                     then loop
-             else if completionCode == cJOB_OBJECT_MSG_NEW_PROCESS
-                     then loop
-                     else loop
+    loop -- Kick it all off
 
-    loop
+    overlapped <- peek p_Overlapped
+    code       <- peek $ p_CompletionCode
 
-    overlapped    <- peek p_Overlapped
-    completionKey <- peek $ castPtr p_CompletionKey
-    return $ if overlapped == nullPtr && completionKey /= hJob
+    return $ if overlapped == nullPtr && code /= cJOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
                 then False -- Timeout occurred. *dark voice* YOU HAVE FAILED THIS TEST!.
                 else True
 #endif

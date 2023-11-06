@@ -14,11 +14,13 @@ Commands to run testsuite:
  * Test a specific 'way': `make WAY=optllvm`
  * Keeping the run directory after test run: `make CLEANUP=0`. You will find a
    directory `{test_name}.run` in the test's source directory.
- * Test a specifc stage of GHC: `make stage=1`
+ * Test a specific stage of GHC: `make stage=1`
  * Skip performance tests: `make SKIP_PERF_TESTS=YES`
  * Set verbosity: `make VERBOSE=n`
-   where n=0: No per-test ouput, n=1: Only failures,
-         n=2: Progress output, n=3: Include commands called (default)
+   where n=0: No per-test output, n=1: Only failures,
+         n=2: Progress output, n=3: Include commands called (default),
+         n=4: Include perf test results unconditionally,
+         n=5: Echo commands in subsidiary make invocations
  * Pass in extra GHC options: `make EXTRA_HC_OPTS=-fvectorize`
 
 You can also change directory to a specific test folder to run that
@@ -42,4 +44,4 @@ The various ways that GHC supports are defined in `config/ghc`
 
 Please see the more extensive documentation [here][1].
 
-  [1]: http://ghc.haskell.org/trac/ghc/wiki/Building/RunningTests
+  [1]: https://gitlab.haskell.org/ghc/ghc/wikis/building/running-tests

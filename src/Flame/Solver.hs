@@ -30,7 +30,7 @@ module Flame.Solver
 where
 
 -- external
-import Control.Monad              (replicateM)
+import Control.Monad              (replicateM, (<=<))
 import Data.List                  (partition)
 import qualified Data.Set as S    (union, empty, singleton, notMember, toList)
 import Data.Maybe                 (mapMaybe, maybeToList, catMaybes)
@@ -38,8 +38,7 @@ import Data.Map.Strict as M       (Map, empty, fromList, unionWith, findWithDefa
 -- GHC API
 import GHC.Plugins hiding (TcPlugin)
 import GHC.Tc.Types
-    ( TcPlugin(TcPlugin, tcPluginStop, tcPluginInit, tcPluginSolve), TcPluginSolveResult (..),
-      )
+    ( TcPlugin(..), TcPluginSolveResult (..))
 import GHC.Tc.Types.Constraint
 import GHC.Tc.Types.Evidence
 import GHC.Core.Predicate
@@ -60,9 +59,9 @@ import GHC.Utils.Trace (pprTrace)
 evByFiat :: String -- ^ Name the coercion should have
          -> Type   -- ^ The LHS of the equivalence relation (~)
          -> Type   -- ^ The RHS of the equivalence relation (~)
-         -> EvTerm
+         -> EvExpr
 evByFiat name t1 t2 =
-  EvExpr $ Coercion $ mkUnivCo (PluginProv name) Nominal t1 t2
+  Coercion $ mkUnivCo (PluginProv name) Nominal t1 t2
 
 plugin :: Plugin
 plugin = defaultPlugin { tcPlugin = const $ Just flamePlugin }
@@ -71,6 +70,7 @@ flamePlugin :: TcPlugin
 flamePlugin = -- tracePlugin "flame"
   TcPlugin { tcPluginInit  = lookupFlameRec
            , tcPluginSolve = decideActsFor
+           , tcPluginRewrite = const emptyUFM
            , tcPluginStop  = \_ -> (return ())
            }
 
@@ -80,30 +80,30 @@ lookupFlameRec = do
     let prinMod = case res of
                     Found modLoc mod -> mod
                     _ -> error "bad"
-    kprinTc    <- tcLookupTyCon <$> lookupOrig prinMod (mkTcOcc "KPrin")
-    actsforTc  <- tcLookupTyCon <$> lookupOrig prinMod (mkTcOcc "≽")
-    ktopData   <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KTop"))
-    kbotData   <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KBot"))
-    knameData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KName"))
-    kconjData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConj"))
-    kdisjData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KDisj"))
-    kconfData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConf"))
-    kintegData <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KInteg"))
-    kvoiceData <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KVoice"))
-    keyeData   <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KEye"))
+    kprinTc    <- tcLookupTyCon   <=< (lookupOrig prinMod) $ (mkTcOcc "KPrin")
+    actsforTc  <- tcLookupTyCon   <=< (lookupOrig prinMod) $ (mkTcOcc "≽")
+    ktopData   <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KTop")
+    kbotData   <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KBot")  
+    knameData  <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KName")
+    kconjData  <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KConj")
+    kdisjData  <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KDisj")
+    kconfData  <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KConf")
+    kintegData <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KInteg")
+    kvoiceData <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KVoice")
+    keyeData   <- tcLookupDataCon <=< (lookupOrig prinMod) $ (mkDataOcc "KEye")
     (level,_)    <- unsafeTcPluginTcM $ runTcS getTcLevel
     return FlameRec{
        kprin      = kprinTc
     ,  actsfor    = actsforTc
-    ,  ktop       = ktopData
-    ,  kbot       = kbotData
-    ,  kname      = knameData
-    ,  kconj      = kconjData
-    ,  kdisj      = kdisjData
-    ,  kconf      = kconfData
-    ,  kinteg     = kintegData
-    ,  kvoice     = kvoiceData
-    ,  keye       = keyeData
+    ,  ktop       = promoteDataCon ktopData
+    ,  kbot       = promoteDataCon kbotData
+    ,  kname      = promoteDataCon knameData
+    ,  kconj      = promoteDataCon kconjData
+    ,  kdisj      = promoteDataCon kdisjData
+    ,  kconf      = promoteDataCon kconfData
+    ,  kinteg     = promoteDataCon kintegData
+    ,  kvoice     = promoteDataCon kvoiceData
+    ,  keye       = promoteDataCon keyeData
     ,  confBounds   = M.empty
     ,  integBounds  = M.empty
     ,  confClosure  = []
@@ -358,9 +358,9 @@ evMagic flrec cts preds =
                   let ctEv = mkUnivCo (PluginProv "flame") Representational (mkHEqPred p q) af'
                   forallEv <- mkForAllCos <$> (replicateM (length preds) kprinCoBndr) <*> pure ctEv
                   let finalEv = foldl mkInstCo forallEv holeEvs
-                  return $ Just undefined --(evDFunApp (dataConWrapId heqDataCon)
-                                          --[typeKind p, typeKind q, p, q]
-                                          --[evByFiat "flame" p q] `evCast` finalEv, ct')
+                  return $ Just ((Var (dataConWrapId heqDataCon) 
+                                  `mkTyApps` [typeKind p, typeKind q, p, q] 
+                                  `mkApps` [evByFiat "flame" p q])  `evCast` finalEv, ct')
                 _ -> return Nothing) afcts
        
        return (catMaybes evs, newWanted)
@@ -382,12 +382,12 @@ mkHEqPred t1 t2 = TyConApp heqTyCon [typeKind t1, typeKind t2, t1, t2]
 -- a derived constraint.
 mkNewEqFact :: EvBindsVar -> CtLoc -> (Type,Type) -> TcPluginM CtEvidence
 mkNewEqFact evbinds newLoc (t1,t2) = do 
-    newGiven evbinds newLoc newPred undefined -- (evByFiat "flame" t1 t2)
+    newGiven evbinds newLoc newPred (evByFiat "flame" t1 t2)
   where
   newPred = mkPrimEqPred t1 t2
 
 mkNewAFFact :: FlameRec -> EvBindsVar -> CtLoc -> (Type,Type) -> TcPluginM CtEvidence
-mkNewAFFact flrec evbinds newLoc (t1,t2) = newGiven evbinds newLoc newPred undefined -- (evByFiat "flame" t1 t2)
+mkNewAFFact flrec evbinds newLoc (t1,t2) = newGiven evbinds newLoc newPred (evByFiat "flame" t1 t2)
   where
   newPred = mkTyConApp (actsfor flrec) [t1, t2]
 

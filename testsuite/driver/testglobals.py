@@ -1,6 +1,11 @@
-# 
+#
 # (c) Simon Marlow 2002
 #
+
+from my_typing import *
+from pathlib import Path
+from perf_notes import MetricChange, PerfStat, Baseline, MetricOracles, GitRef
+from datetime import datetime
 
 # -----------------------------------------------------------------------------
 # Configuration info
@@ -9,7 +14,7 @@
 # variable config below.  The fields of the structure are filled in by
 # the appropriate config script(s) for this compiler/platform, in
 # ../config.
-# 
+#
 # Bits of the structure may also be filled in from the command line,
 # via the build system, using the '-e' option to runtests.
 
@@ -17,7 +22,7 @@ class TestConfig:
     def __init__(self):
 
         # Where the testsuite root is
-        self.top = ''
+        self.top = Path('.')
 
         # Directories below which to look for test description files (foo.T)
         self.rootdirs = []
@@ -26,11 +31,41 @@ class TestConfig:
         self.run_only_some_tests = False
         self.only = set()
 
+        # Don't fail on out-of-tolerance stat failures
+        self.ignore_perf_increases = False
+        self.ignore_perf_decreases = False
+
         # Accept new output which differs from the sample?
-        self.accept = 0
+        self.accept = False
+        self.accept_platform = False
+        self.accept_os = False
+
+        # File in which to save the performance metrics.
+        self.metrics_file = ''
 
         # File in which to save the summary
         self.summary_file = ''
+
+        # Path to Ghostscript
+        self.gs = None # type: Optional[Path]
+
+        # Run tests requiring Haddock
+        self.haddock = False
+
+        # Compiler has native code generator?
+        self.have_ncg = False
+
+        # Is compiler unregisterised?
+        self.unregisterised = False
+
+        # Was the compiler executable compiled with profiling?
+        self.compiler_profiled = False
+
+        # Was the compiler compiled with DEBUG?
+        self.compiler_debugged = False
+
+        # Was the compiler compiled with LLVM?
+        self.ghc_built_by_llvm = False
 
         # Should we print the summary?
         # Disabling this is useful for Phabricator/Harbormaster
@@ -41,19 +76,18 @@ class TestConfig:
         # with --verbose=0.
         self.no_print_summary = False
 
-        # File in which to save the times
-        self.times_file = ''
-
         # What platform are we running on?
         self.platform = ''
         self.os = ''
         self.arch = ''
+        self.msys = False
+        self.cygwin = False
 
         # What is the wordsize (in bits) of this platform?
         self.wordsize = ''
 
         # Verbosity level
-        self.verbose = 3
+        self.verbose = 2
 
         # See Note [validate and testsuite speed] in toplevel Makefile.
         self.speed = 1
@@ -70,20 +104,23 @@ class TestConfig:
 
         # Flags we always give to this compiler
         self.compiler_always_flags = []
-        
+
         # Which ways to run tests (when compiling and running respectively)
         # Other ways are added from the command line if we have the appropriate
         # libraries.
-        self.compile_ways = []
-        self.run_ways     = []
-        self.other_ways   = []
+        self.compile_ways = [] # type: List[WayName]
+        self.run_ways     = [] # type: List[WayName]
+        self.other_ways   = [] # type: List[WayName]
 
         # The ways selected via the command line.
-        self.cmdline_ways = []
+        self.cmdline_ways = [] # type: List[WayName]
 
         # Lists of flags for each way
-        self.way_flags = {}
-        self.way_rts_flags = {}
+        self.way_flags = {}  # type: Dict[WayName, List[str]]
+        self.way_rts_flags = {}  # type: Dict[WayName, List[str]]
+
+        # Do we have a functional LLVM toolchain?
+        self.have_llvm = False
 
         # Do we have vanilla libraries?
         self.have_vanilla = False
@@ -97,25 +134,98 @@ class TestConfig:
         # Do we have interpreter support?
         self.have_interp = False
 
-        # Do we have shared libraries?
-        self.have_shared_libs = False
+        # Does the platform support loading of dynamic shared libraries? e.g.
+        # some musl-based environments do not.
+        self.supports_dynamic_libs = True
+
+        # Does GHC support dynamic linking of Haskell objects (i.e. the dynamic
+        # way)?
+        self.supports_dynamic_hs = True
+
+        # Is the compiler dynamically linked?
+        self.ghc_dynamic = False
 
         # Do we have SMP support?
         self.have_smp = False
 
+        # Is gdb available?
+        self.have_gdb = False
+
+        # Is readelf available?
+        self.have_readelf = False
+
+        # Do we use a fast backend for bignum (e.g. GMP)
+        self.have_fast_bignum = True
+
         # Are we testing an in-tree compiler?
         self.in_tree_compiler = True
+
+        # Are we running in a ThreadSanitizer-instrumented build?
+        self.have_thread_sanitizer = False
+
+        # Do symbols use leading underscores?
+        self.leading_underscore = False
 
         # the timeout program
         self.timeout_prog = ''
         self.timeout = 300
-        
+
         # threads
         self.threads = 1
-        self.use_threads = 0
+        self.use_threads = False
+
+        # tests which should be considered to be broken during this testsuite
+        # run.
+        self.broken_tests = set() # type: Set[TestName]
+
+        # Baseline commit for performance metric comparisons.
+        self.baseline_commit = None # type: Optional[GitRef]
+
+        # Additional package dbs to inspect for test dependencies.
+        self.test_package_db = [] # type: [PathToPackageDb]
 
         # Should we skip performance tests
         self.skip_perf_tests = False
+
+        # Only do performance tests
+        self.only_perf_tests = False
+
+        # Allowed performance changes (see perf_notes.get_allowed_perf_changes())
+        self.allowed_perf_changes = {}
+
+        # The test environment.
+        self.test_env = 'local'
+
+        # terminal supports colors
+        self.supports_colors = False
+
+        # Where to look up runtime stats produced by haddock, needed for
+        # the haddock perf tests in testsuite/tests/perf/haddock/.
+        # See Note [Haddock runtime stats files] at the bottom of this file.
+        self.stats_files_dir = Path('/please_set_stats_files_dir')
+
+        # Should we cleanup after test runs?
+        self.cleanup = True
+
+        # I have no idea what this does
+        self.package_conf_cache_file = None # type: Optional[Path]
+
+        # The extra hadrian dependencies we need for all configured tests
+        self.hadrian_deps = set() # type: Set[str]
+
+        # Are we only reporting hadrian dependencies?
+        # The path specifies the file in which to write the dependencies
+        self.only_report_hadrian_deps = None # type: Optional[Path]
+
+    def validate(self) -> None:
+        """ Check the TestConfig for self-consistency """
+        def assert_implies(a: bool, b: bool):
+            if a:
+                assert(b)
+
+        assert_implies(self.supports_dynamic_hs, self.supports_dynamic_libs)
+        assert_implies(self.have_dynamic, self.supports_dynamic_hs)
+        assert_implies(self.ghc_dynamic, self.have_dynamic)
 
 global config
 config = TestConfig()
@@ -123,69 +233,123 @@ config = TestConfig()
 def getConfig():
     return config
 
+import os
+# Hold our modified GHC testrunning environment so we don't poison the current
+# python's environment.
+global ghc_env
+ghc_env = os.environ.copy()
+
 # -----------------------------------------------------------------------------
 # Information about the current test run
 
+class TestResult:
+    """
+    A result from the execution of a test. These live in the expected_passes,
+    framework_failures, framework_warnings, unexpected_passes,
+    unexpected_failures, unexpected_stat_failures lists of TestRun.
+    """
+    __slots__ = 'directory', 'testname', 'reason', 'way', 'stdout', 'stderr'
+    def __init__(self,
+                 directory: str,
+                 testname: TestName,
+                 reason: str,
+                 way: WayName,
+                 stdout: Optional[str]=None,
+                 stderr: Optional[str]=None) -> None:
+        self.directory = directory
+        self.testname = testname
+        self.reason = reason
+        self.way = way
+        self.stdout = stdout
+        self.stderr = stderr
+
+# A performance metric measured in this test run.
+PerfMetric = NamedTuple('PerfMetric',
+                        [('change', MetricChange),
+                         ('stat', PerfStat),
+                         ('baseline', Optional[Baseline]) ])
+
 class TestRun:
-   def __init__(self):
-       self.start_time = None
+   def __init__(self) -> None:
+       self.start_time = None # type: Optional[datetime]
        self.total_tests = 0
        self.total_test_cases = 0
 
        self.n_tests_skipped = 0
+       self.n_missing_libs = 0
        self.n_expected_passes = 0
        self.n_expected_failures = 0
 
-       self.missing_libs = []
-       self.framework_failures = []
+       self.framework_failures = [] # type: List[TestResult]
+       self.framework_warnings = [] # type: List[TestResult]
 
-       self.unexpected_passes = []
-       self.unexpected_failures = []
-       self.unexpected_stat_failures = []
+       self.expected_passes = [] # type: List[TestResult]
+       self.unexpected_passes = [] # type: List[TestResult]
+       self.unexpected_failures = [] # type: List[TestResult]
+       self.unexpected_stat_failures = [] # type: List[TestResult]
+
+       # Results from tests that have been marked as fragile
+       self.fragile_passes = [] # type: List[TestResult]
+       self.fragile_failures = [] # type: List[TestResult]
+
+       # List of all metrics measured in this test run.
+       # [(change, PerfStat)] where change is one of the  MetricChange
+       # constants: NewMetric, NoChange, Increase, Decrease.
+       # NewMetric happens when the previous git commit has no metric recorded.
+       self.metrics = [] # type: List[PerfMetric]
 
 global t
 t = TestRun()
 
-def getTestRun():
+def getTestRun() -> TestRun:
     return t
 
 # -----------------------------------------------------------------------------
 # Information about the current test
 
 class TestOptions:
-   def __init__(self):
+   def __init__(self) -> None:
        # skip this test?
-       self.skip = 0
+       self.skip = False
+
+       # the test is known to be fragile in these ways
+       self.fragile_ways = [] # type: List[WayName]
 
        # skip these ways
-       self.omit_ways = []
+       self.omit_ways = [] # type: List[WayName]
 
        # skip all ways except these (None == do all ways)
-       self.only_ways = None
+       self.only_ways = None # type: Optional[List[WayName]]
 
        # add these ways to the default set
-       self.extra_ways = []
+       self.extra_ways = [] # type: List[WayName]
 
        # the result we normally expect for this test
        self.expect = 'pass'
 
        # override the expected result for certain ways
-       self.expect_fail_for = []
+       self.expect_fail_for = [] # type: List[WayName]
 
-       # the stdin file that this test will use (empty for <name>.stdin)
-       self.stdin = ''
+       # the stdin file that this test will use (None for <name>.stdin)
+       self.srcdir = None # type: Optional[Path]
+
+       # the stdin file that this test will use (None for <name>.stdin)
+       self.stdin = None # type: Optional[Path]
+
+       # Set the expected stderr/stdout. '' means infer from test name.
+       self.use_specs = {} # type: Dict[str, Path]
 
        # don't compare output
        self.ignore_stdout = False
        self.ignore_stderr = False
 
        # Backpack test
-       self.compile_backpack = 0
+       self.compile_backpack = False
 
        # We sometimes want to modify the compiler_always_flags, so
        # they are copied from config.compiler_always_flags when we
        # make a new instance of TestOptions.
-       self.compiler_always_flags = []
+       self.compiler_always_flags = [] # type: List[str]
 
        # extra compiler opts for this test
        self.extra_hc_opts = ''
@@ -194,47 +358,52 @@ class TestOptions:
        self.extra_run_opts = ''
 
        # expected exit code
-       self.exit_code = 0
+       self.exit_code = 0 # type: int
 
        # extra files to clean afterward
-       self.clean_files = []
+       self.clean_files = [] # type: List[str]
 
        # extra files to copy to the testdir
-       self.extra_files = []
+       self.extra_files = [] # type: List[str]
 
-       # which -t numeric fields do we want to look at, and what bounds must
-       # they fall within?
-       # Elements of these lists should be things like
-       # ('bytes allocated',
-       #   9300000000,
-       #   10)
-       # To allow a 10% deviation from 9300000000.
-       self.compiler_stats_range_fields = {}
-       self.stats_range_fields = {}
+       # Map from metric to (function from way and commit to baseline value, allowed percentage deviation) e.g.
+       #     { 'bytes allocated': (
+       #              lambda way commit:
+       #                    ...
+       #                    if way1: return None ...
+       #                    elif way2:return 9300000000 ...
+       #                    ...
+       #              , 10) }
+       # This means no baseline is available for way1. For way 2, allow a 10%
+       # deviation from 9300000000.
+       self.stats_range_fields = {} # type: Dict[MetricName, MetricOracles]
+
+       # Is the test testing performance?
+       self.is_stats_test = False
+
+       # Does this test the compiler's performance as opposed to the generated code.
+       self.is_compiler_stats_test = False
 
        # should we run this test alone, i.e. not run it in parallel with
        # any other threads
        self.alone = False
 
        # Does this test use a literate (.lhs) file?
-       self.literate = 0
+       self.literate = False
 
        # Does this test use a .c, .m or .mm file?
-       self.c_src      = 0
-       self.objc_src   = 0
-       self.objcpp_src = 0
+       self.c_src      = False
+       self.objc_src   = False
+       self.objcpp_src = False
 
        # Does this test use a .cmm file?
-       self.cmm_src    = 0
+       self.cmm_src    = False
 
        # Should we put .hi/.o files in a subdirectory?
        self.outputdir = None
 
        # Command to run before the test
        self.pre_cmd = None
-
-       # Command to run for extra cleaning
-       self.clean_cmd = None
 
        # Command wrapper: a function to apply to the command before running it
        self.cmd_wrapper = None
@@ -243,12 +412,12 @@ class TestOptions:
        self.compile_cmd_prefix = ''
 
        # Extra output normalisation
-       self.extra_normaliser = lambda x: x
+       self.extra_normaliser = lambda x: x # type: OutputNormalizer
 
        # Custom output checker, otherwise do a comparison with expected
        # stdout file.  Accepts two arguments: filename of actual stdout
        # output, and a normaliser function given other test options
-       self.check_stdout = None
+       self.check_stdout = None # type: Optional[Callable[[Path, OutputNormalizer], bool]]
 
        # Check .hp file when profiling libraries are available?
        self.check_hp = True
@@ -260,7 +429,7 @@ class TestOptions:
        self.keep_prof_callstacks = False
 
        # The directory the test is in
-       self.testdir = '.'
+       self.testdir = Path('.')
 
        # Should we redirect stdout and stderr to a single file?
        self.combined_output = False
@@ -269,17 +438,21 @@ class TestOptions:
        self.compile_timeout_multiplier = 1.0
        self.run_timeout_multiplier = 1.0
 
-       self.cleanup = True
-
-       # Sould we run tests in a local subdirectory (<testname>-run) or
+       # Should we run tests in a local subdirectory (<testname>-run) or
        # in temporary directory in /tmp? See Note [Running tests in /tmp].
        self.local = True
+
+       # Should we copy the files of symlink the files for the test?
+       self.copy_files = False
+
+       # The extra hadrian dependencies we need for this particular test
+       self.hadrian_deps = set(["test:ghc"]) # type: Set[str]
 
 # The default set of options
 global default_testopts
 default_testopts = TestOptions()
 
-# (bug, directory, name) of tests marked broken
+# (bug, directory, name) of tests marked broken. Used by config.list_broken
+# feature.
 global brokens
-brokens = []
-
+brokens = []  # type: List[Tuple[IssueNumber, str, str]]

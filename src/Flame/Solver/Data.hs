@@ -8,7 +8,7 @@ import Data.Map.Strict (Map, union, keys, fromList)
 -- GHC API
 import GHC.Plugins (Type, TyCon, TyVar, ($$), (<+>), text, Outputable(..), ppr, hcat, punctuate, eqType, nonDetCmpType)
 import GHC.Tc.Types.Constraint ( Ct )
-import GHC.Tc.Types.Evidence ( EvTerm )
+import GHC.Tc.Types.Evidence ( EvTerm, EvExpr )
 import GHC.Tc.Solver.Monad ( TcLevel )
 
 
@@ -21,10 +21,10 @@ import GHC.Tc.Solver.Monad ( TcLevel )
 -- import TcEvidence (EvTerm (..))
 -- import TcType     (TcLevel)
 -- 
--- #if __GLASGOW_HASKELL__ >= 711
+-- #if 904 >= 711
 -- import Type       (eqType)
 -- #endif
--- #if __GLASGOW_HASKELL__ < 82
+-- #if 904 < 82
 -- import Type       (cmpType)
 -- #else
 -- import Type       (nonDetCmpType)
@@ -73,7 +73,7 @@ instance (Eq v, Eq s) => Eq (Norm v s) where
 
 instance (Outputable v, Outputable s)  => Outputable (Norm v s) where
   ppr (N c i) = case (pprSimple c, pprSimple i) of
-                  (cS, iS) -> cS <+> text "→ ∧ " <+> iS <+> text "←" 
+                  (cS, iS) -> cS <+> text "→ ∧ " <+> iS <+> text "←"
     where
       pprSimple (J [M [P s]]) = ppr s
       pprSimple (J [M [U s]]) = ppr s
@@ -105,7 +105,7 @@ type CoreJNorm      = JNorm TyVar Type
 type CoreMNorm      = MNorm TyVar Type
 type CoreBase       = Base TyVar  Type
 
-                      
+
 type DelClosure v s = [(JNorm v s, [JNorm v s])]
 type CoreDelClosure = DelClosure TyVar  Type
 
@@ -113,13 +113,13 @@ type Bounds v s = Map v (JNorm v s)
 type CoreBounds = Bounds TyVar Type
 
 data FlameRec = FlameRec {
-   kprin        :: TyCon, 
-   ktop         :: TyCon, 
-   kbot         :: TyCon, 
-   kname        :: TyCon, 
-   kconj        :: TyCon, 
-   kdisj        :: TyCon, 
-   kconf        :: TyCon, 
+   kprin        :: TyCon,
+   ktop         :: TyCon,
+   kbot         :: TyCon,
+   kname        :: TyCon,
+   kconj        :: TyCon,
+   kdisj        :: TyCon,
+   kconf        :: TyCon,
    kinteg       :: TyCon,
    kvoice       :: TyCon,
    keye         :: TyCon,
@@ -131,17 +131,19 @@ data FlameRec = FlameRec {
    tclevel      :: TcLevel
  }
 
+getBounds :: FlameRec -> Bool -> CoreBounds
 getBounds flrec isConf =
   if isConf then
     confBounds flrec
   else
     integBounds flrec
 
+updateBounds :: FlameRec -> Bool -> [(TyVar, JNorm TyVar Type)] -> FlameRec
 updateBounds flrec isConf newBnds =
  if isConf then
-   flrec{confBounds = union (fromList newBnds) (getBounds flrec isConf)}
+   flrec{confBounds = fromList newBnds `union` getBounds flrec isConf}
  else
-   flrec{integBounds = union (fromList newBnds) (getBounds flrec isConf)}
+   flrec{integBounds = fromList newBnds `union` getBounds flrec isConf}
 
 data SimplifyResult
   = Simplified ([(EvTerm,Ct)],[Ct])
@@ -156,12 +158,14 @@ data SolverResult
   | Lose ActsForCt
   | ChangeBounds [(TyVar, CoreJNorm)] -- ^ Two terms are only equal if the given substitution holds
 
+resultBounds :: SolverResult -> [(TyVar, CoreJNorm)]
 resultBounds result =
   case result of
     ChangeBounds bnds -> bnds
     Win -> []
     Lose af -> error "should not happen"
 
+changedVars :: SolverResult -> [TyVar]
 changedVars result =
   case result of
     ChangeBounds bnds -> keys $ fromList bnds
@@ -177,3 +181,5 @@ type ActsForCt = (Ct, (CoreNorm, CoreNorm))
 
 fromActsFor :: ActsForCt -> Ct
 fromActsFor (ct, _)    = ct
+
+

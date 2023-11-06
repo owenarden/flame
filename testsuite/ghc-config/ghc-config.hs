@@ -2,6 +2,7 @@ import System.Environment
 import System.Process
 import Data.Maybe
 
+main :: IO ()
 main = do
   [ghc] <- getArgs
 
@@ -20,34 +21,21 @@ main = do
   getGhcFieldOrFail fields "GhcDebugged" "Debug on"
   getGhcFieldOrFail fields "GhcWithNativeCodeGen" "Have native code generator"
   getGhcFieldOrFail fields "GhcWithInterpreter" "Have interpreter"
+  getGhcFieldOrFail fields "GhcWithRtsLinker" "target has RTS linker"
   getGhcFieldOrFail fields "GhcUnregisterised" "Unregisterised"
   getGhcFieldOrFail fields "GhcWithSMP" "Support SMP"
   getGhcFieldOrFail fields "GhcRTSWays" "RTS ways"
-  getGhcFieldOrDefault fields "GhcDynamicByDefault" "Dynamic by default" "NO"
+  getGhcFieldOrFail fields "GhcLibdir" "LibDir"
+  getGhcFieldOrFail fields "GhcGlobalPackageDb" "Global Package DB"
   getGhcFieldOrDefault fields "GhcDynamic" "GHC Dynamic" "NO"
   getGhcFieldOrDefault fields "GhcProfiled" "GHC Profiled" "NO"
+  getGhcFieldOrDefault fields "LeadingUnderscore" "Leading underscore" "NO"
   getGhcFieldProgWithDefault fields "AR" "ar command" "ar"
+  getGhcFieldProgWithDefault fields "CLANG" "LLVM clang command" "clang"
   getGhcFieldProgWithDefault fields "LLC" "LLVM llc command" "llc"
   getGhcFieldProgWithDefault fields "TEST_CC" "C compiler command" "gcc"
-
-  let pkgdb_flag = case lookup "Project version" fields of
-        Just v
-          | parseVersion v >= [7,5] -> "package-db"
-        _ -> "package-conf"
-  putStrLn $ "GhcPackageDbFlag" ++ '=':pkgdb_flag
-
-  let minGhcVersion711 = case lookup "Project version" fields of
-        Just v
-          | parseVersion v >= [7,11] -> "YES"
-        _ -> "NO"
-  putStrLn $ "MinGhcVersion711" ++ '=':minGhcVersion711
-
-  let minGhcVersion801 = case lookup "Project version" fields of
-        Just v
-          | parseVersion v >= [8,1] -> "YES"
-        _ -> "NO"
-  putStrLn $ "MinGhcVersion801" ++ '=':minGhcVersion801
-
+  getGhcFieldProgWithDefault fields "TEST_CC_OPTS" "C compiler flags" ""
+  getGhcFieldProgWithDefault fields "TEST_CXX" "C++ compiler command" "g++"
 
 getGhcFieldOrFail :: [(String,String)] -> String -> String -> IO ()
 getGhcFieldOrFail fields mkvar key
