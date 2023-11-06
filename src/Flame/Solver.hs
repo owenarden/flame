@@ -83,14 +83,14 @@ lookupFlameRec = do
     kprinTc    <- tcLookupTyCon <$> lookupOrig prinMod (mkTcOcc "KPrin")
     actsforTc  <- tcLookupTyCon <$> lookupOrig prinMod (mkTcOcc "≽")
     ktopData   <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KTop"))
-    kbotData   <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KBot")  
-    knameData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KName")
-    kconjData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConj")
-    kdisjData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KDisj")
-    kconfData  <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConf")
-    kintegData <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KInteg")
-    kvoiceData <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KVoice")
-    keyeData   <- promoteDataCon <$> tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KEye")
+    kbotData   <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KBot"))
+    knameData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KName"))
+    kconjData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConj"))
+    kdisjData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KDisj"))
+    kconfData  <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KConf"))
+    kintegData <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KInteg"))
+    kvoiceData <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KVoice"))
+    keyeData   <- promoteDataCon <$> (tcLookupDataCon <$> lookupOrig prinMod (mkDataOcc "KEye"))
     (level,_)    <- unsafeTcPluginTcM $ runTcS getTcLevel
     return FlameRec{
        kprin      = kprinTc
