@@ -54,7 +54,9 @@ library
                     template-haskell,
                     haskell-src-meta,
                     haskell-src-exts,
+                    freer-simple,
                     flame-plugin
+
 
 
 

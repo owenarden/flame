@@ -40,7 +40,8 @@ packages:
 # - git: https://github.com/commercialhaskell/stack.git
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
-# extra-deps: []
+extra-deps:
+- freer-simple-1.2.1.2@sha256:39417ebbb47e96a40097aaeb8185fbf0b8887f7a93596a7a2c0e06e30e5209e2,3206
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
@@ -65,3 +66,6 @@ packages:
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
+
+# for freer-simple's dep on older TH
+allow-newer: true

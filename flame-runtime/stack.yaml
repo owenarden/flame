@@ -12,7 +12,8 @@ ghc-options:
 packages:
 - .
 
-extra-deps: []
+extra-deps: 
+- freer-simple-1.2.1.2@sha256:39417ebbb47e96a40097aaeb8185fbf0b8887f7a93596a7a2c0e06e30e5209e2,3206
 
 # Override default flag values for local packages and extra-deps
 flags: {}
