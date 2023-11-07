@@ -18,4 +18,3 @@ LIBRARY_TEST_PATHS := $(wildcard $(patsubst %, $(TOP)/../libraries/%/tests, $(LI
 
 # Add tests from packages
 RUNTEST_OPTS += $(patsubst %, --rootdir=%, $(LIBRARY_TEST_PATHS))
-

@@ -1,4 +1,5 @@
 TOP = ..
+STAGE1_GHC = `which ghc`
 
 # If we're cleaning then we don't want to do all the GHC detection hardwork,
 # and we certainly don't want to fail if GHC etc can't be found!

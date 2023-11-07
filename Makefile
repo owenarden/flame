@@ -46,3 +46,7 @@ ghcid: stack
 	    --warnings \
 	    --outputfile ./ghcid.txt
 .PHONY: ghcid
+
+test: stack
+	@stack exec -- make -C flame-runtime/testsuite/
+	
