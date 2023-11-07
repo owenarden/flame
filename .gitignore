@@ -3,6 +3,11 @@
 *.dyn_o
 *.dyn_hi
 dist/
+dist-newstyle/
 .stack-work/
 hasktags
 warning.txt
+ghcid.txt
+.DS_Store
+tags
+stack.yaml.lock
