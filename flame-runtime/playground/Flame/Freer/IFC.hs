@@ -34,29 +34,67 @@ import Data.Constraint
 import Data.OpenUnion.Internal
 import Data.Constraint.Unsafe
 import Data.Reflection
-import Data.Singletons (Apply, TyFun)
+-- import Data.Singletons (Apply, TyFun)
 import GHC.TypeLits (TypeError, ErrorMessage(..))
 
+import Control.Monad ((>=>))
 
--- | Type list membership test.
-type family Find x ys where
-    Find x '[]       = 'False
-    Find x (x ': ys) = 'True
-    Find x (y ': ys) = Find x ys
+-- | Freer monads.
+--
+-- A freer monad @Freer f a@ represents an effectful computation that returns a
+-- value of type @a@. The parameter @f :: * -> *@ is a effect signature that
+-- defines the effectful operations allowed in the computation. @Freer f a@ is
+-- called a freer monad in that it's a `Monad` given any @f@.
+data Freer f a where
+  -- | A pure computation.
+  Return :: a -> Freer f a
+  -- | An effectful computation where the first argument @f b@ is the effect
+  -- to perform and returns a result of type @b@; the second argument
+  -- @b -> Freer f a@ is a continuation that specifies the rest of the
+  -- computation given the result of the performed effect.
+  Do :: f b -> (b -> Freer f a) -> Freer f a
 
-data Find'' :: TyFun k (TyFun [k] Bool -> *) -> * where
-    Find'' :: Find'' f
+instance Functor (Freer f) where
+  fmap f (Return a) = Return (f a)
+  fmap f (Do eff k) = Do eff (fmap f . k)
 
-data Find' :: k -> TyFun [k] Bool -> * where
-    Find' :: Find' x f
+instance Applicative (Freer f) where
+  pure = Return
 
-type instance Apply Find'' x = Find' x
-type instance Apply (Find' x) xs = Find x xs
+  (Return f) <*> a = fmap f a
+  (Do eff k) <*> a = Do eff $ (<*> a) . k
 
--- | Instance resolution for this class fails with a custom type error
--- if @t :: * -> *@ is in the list @r :: [* -> *]@.
-class IfDupFound (t :: Type -> Type) (r :: [Type -> Type]) (w :: [Type -> Type])
+instance Monad (Freer f) where
+  (Return a) >>= f = f a
+  (Do eff k) >>= f = Do eff (k >=> f)
 
+-- | Lift an effect into the freer monad.
+toFreer :: f a -> Freer f a
+toFreer eff = Do eff Return
+
+-- | Interpret the effects in a freer monad in terms of another monad.
+interpFreer :: Monad m => (forall a. f a -> m a) -> Freer f a -> m a
+interpFreer handler (Return a) = return a
+interpFreer handler (Do eff k) = handler eff >>= interpFreer handler . k
+-- -- | Type list membership test.
+-- type family Find x ys where
+--     Find x '[]       = 'False
+--     Find x (x ': ys) = 'True
+--     Find x (y ': ys) = Find x ys
+-- 
+-- data Find'' :: TyFun k (TyFun [k] Bool -> *) -> * where
+--     Find'' :: Find'' f
+-- 
+-- data Find' :: k -> TyFun [k] Bool -> * where
+--     Find' :: Find' x f
+-- 
+-- type instance Apply Find'' x = Find' x
+-- type instance Apply (Find' x) xs = Find x xs
+-- 
+-- -- | Instance resolution for this class fails with a custom type error
+-- -- if @t :: * -> *@ is in the list @r :: [* -> *]@.
+-- class IfDupFound (t :: Type -> Type) (r :: [Type -> Type]) (w :: [Type -> Type])
+-- 
 -- -- | If we reach an empty list, that’s a success, since it means the type isn’t
 -- -- in the list. For GHC >=8, we can render a custom type error that explicitly
 -- -- states what went wrong.
@@ -86,18 +124,19 @@ class IfDupFound (t :: Type -> Type) (r :: [Type -> Type]) (w :: [Type -> Type])
 data (l::KPrin) ! a  where
   Label :: a  -> l!a
 
-type Use pc = forall a l. (l⊑pc) => (l ! a) -> a
+type Use pc = forall pc a l. (l⊑pc) => (l ! a) -> a
 
-data LabeledSig (pc::KPrin) m a where 
-    Return :: forall l. (pc ⊑ l) => a -> LabeledSig pc m (l!a)
-    Bind :: (l ⊑ l') => l!a -> (a -> Labeled m (l'!b)) -> LabeledSig pc m (l'!b)
+data LabeledSig m (pc::KPrin) a where 
+    LReturn :: (pc ⊑ l) => a -> LabeledSig m pc (l!a)
+    LBind :: (l ⊑ l') => l!a -> (a -> Labeled m pc (l'!b)) -> LabeledSig m pc (l'!b)
 
+type Labeled m pc = Freer (LabeledSig m pc)
 -- data Labeled (pc::KPrin) a where 
 --     Return :: forall pc l a. (pc ⊑ l) => a -> Labeled pc (l!a)
 --     Bind :: forall pc l l' a b. (l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Labeled pc (l'!b)
 -- 
--- lreturn :: forall pc l a effs. (Member (Labeled pc) effs,  pc ⊑ l) => a -> Eff effs (l!a)
--- lreturn a = send (Return @pc @l a)
+lreturn :: (pc ⊑ l) => a -> Eff effs (l!a)
+lreturn a = send (Return @pc @l a)
 -- 
 -- lbind :: forall pc l l' a b effs. (Member (Labeled pc) effs, l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Eff effs (l'!b)
 -- lbind la k = send (Bind @pc @l @l' la k)
