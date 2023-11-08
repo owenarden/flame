@@ -86,31 +86,37 @@ class IfDupFound (t :: Type -> Type) (r :: [Type -> Type]) (w :: [Type -> Type])
 data (l::KPrin) ! a  where
   Label :: a  -> l!a
 
-data Labeled (pc::KPrin) a where 
-    Return :: forall pc l a. (pc ⊑ l) => a -> Labeled pc (l!a)
-    Bind :: forall pc l l' a b. (l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Labeled pc (l'!b)
+type Use pc = forall a l. (l⊑pc) => (l ! a) -> a
 
-lreturn :: forall pc l a effs. (Member (Labeled pc) effs,  pc ⊑ l) => a -> Eff effs (l!a)
-lreturn a = send (Return @pc @l a)
+data LabeledSig (pc::KPrin) m a where 
+    Return :: forall l. (pc ⊑ l) => a -> LabeledSig pc m (l!a)
+    Bind :: (l ⊑ l') => l!a -> (a -> Labeled m (l'!b)) -> LabeledSig pc m (l'!b)
 
-lbind :: forall pc l l' a b effs. (Member (Labeled pc) effs, l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Eff effs (l'!b)
-lbind la k = send (Bind @pc @l @l' la k)
+-- data Labeled (pc::KPrin) a where 
+--     Return :: forall pc l a. (pc ⊑ l) => a -> Labeled pc (l!a)
+--     Bind :: forall pc l l' a b. (l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Labeled pc (l'!b)
+-- 
+-- lreturn :: forall pc l a effs. (Member (Labeled pc) effs,  pc ⊑ l) => a -> Eff effs (l!a)
+-- lreturn a = send (Return @pc @l a)
+-- 
+-- lbind :: forall pc l l' a b effs. (Member (Labeled pc) effs, l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Eff effs (l'!b)
+-- lbind la k = send (Bind @pc @l @l' la k)
+-- 
+-- runLabeled :: forall pc effs. Eff ((Labeled pc) ': effs) ~> Eff effs
+-- runLabeled = interpret $ \case
+--               Return a -> pure $ Label a
+--               Bind (Label a) k -> pure $ (exec $ k a)
+--   where 
+--     exec :: Labeled pc (l'!b) -> (l'!b)
+--     exec = \case 
+--               Return a -> Label a
+--               Bind (Label a) k -> exec $ k a
 
-runLabeled :: forall pc effs. Eff ((Labeled pc) ': effs) ~> Eff effs
-runLabeled = interpret $ \case
-              Return a -> pure $ Label a
-              Bind (Label a) k -> pure $ (exec $ k a)
-  where 
-    exec :: Labeled pc (l'!b) -> (l'!b)
-    exec = \case 
-              Return a -> Label a
-              Bind (Label a) k -> exec $ k a
-
-relabel :: forall pc l l' a effs. (Member (Labeled pc) effs, l ⊑ l') => Eff effs (l!a) -> Eff effs (l'!a)
-relabel ela = do
-  la <- ela
-  lbind @pc @l @l' la (\a -> lreturn @pc @l' a)
-
+--- relabel :: forall pc l l' a effs. (Member (Labeled pc) effs, l ⊑ l') => Eff effs (l!a) -> Eff effs (l'!a)
+--- relabel ela = do
+---   la <- ela
+---   lbind @pc @l @l' la (\a -> lreturn @pc @l' a)
+--- 
 --  Return _ _ a -> lreturn pc l'
     -- evl <- e
   -- send (bind pc l l' evl (\a -> Main.return pc l' a))
