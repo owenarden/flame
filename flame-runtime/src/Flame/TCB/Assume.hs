@@ -90,5 +90,3 @@ eq p q | (dyn p) == (dyn q) =
   unsafeAssume ((st p) ≽ (st q)) $
     unsafeAssume ((st q) ≽ (st p)) $ Just Equiv
 eq p q = Nothing
-
-test = 

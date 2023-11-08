@@ -15,6 +15,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
@@ -33,7 +34,24 @@ import Data.Constraint
 import Data.OpenUnion.Internal
 import Data.Constraint.Unsafe
 import Data.Reflection
+import Data.Singletons (Apply, TyFun)
 import GHC.TypeLits (TypeError, ErrorMessage(..))
+
+
+-- | Type list membership test.
+type family Find x ys where
+    Find x '[]       = 'False
+    Find x (x ': ys) = 'True
+    Find x (y ': ys) = Find x ys
+
+data Find'' :: TyFun k (TyFun [k] Bool -> *) -> * where
+    Find'' :: Find'' f
+
+data Find' :: k -> TyFun [k] Bool -> * where
+    Find' :: Find' x f
+
+type instance Apply Find'' x = Find' x
+type instance Apply (Find' x) xs = Find x xs
 
 -- | Instance resolution for this class fails with a custom type error
 -- if @t :: * -> *@ is in the list @r :: [* -> *]@.
@@ -64,28 +82,39 @@ class IfDupFound (t :: Type -> Type) (r :: [Type -> Type]) (w :: [Type -> Type])
 
 -- instance (Member (Labeled pc) r) => LabeledMember pc r where
 
+
 data (l::KPrin) ! a  where
-  UnsafeMkLbl :: { unsafeRunLbl :: a } -> l!a
+  Label :: a  -> l!a
 
 data Labeled (pc::KPrin) a where 
-    Return :: (pc ⊑ l) => Proxy pc -> Proxy l -> a -> Labeled pc (l!a)
-    Bind :: (Member (Labeled pc) effs, l ⊑ l', l ⊑ pc) => Proxy pc -> Proxy l -> Proxy l' 
-        -> l!a -> (a -> Eff effs (l'!b)) -> Labeled pc (l'!b)
+    Return :: forall pc l a. (pc ⊑ l) => a -> Labeled pc (l!a)
+    Bind :: forall pc l l' a b. (l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Labeled pc (l'!b)
 
-return :: (Member (Labeled pc) effs,  pc ⊑ l) => 
-   Proxy pc -> Proxy l -> a -> Eff effs (l!a)
-return pc l a = send (Return pc l a)
+lreturn :: forall pc l a effs. (Member (Labeled pc) effs,  pc ⊑ l) => a -> Eff effs (l!a)
+lreturn a = send (Return @pc @l a)
 
-bind :: (Member (Labeled pc) effs, l ⊑ l', l ⊑ pc) => Proxy pc -> Proxy l -> Proxy l' 
-           -> l!a -> (a -> Eff effs (l'!b)) -> Eff effs (l'!b)
-bind pc l l' la k = send (Bind pc l l' la k)
+lbind :: forall pc l l' a b effs. (Member (Labeled pc) effs, l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Eff effs (l'!b)
+lbind la k = send (Bind @pc @l @l' la k)
 
-relabel :: (Member (Labeled pc) effs, l ⊑ l', pc ⊑ l') => Proxy pc -> Proxy l -> Proxy l' 
-    -> Eff effs (l!a) -> Eff effs (l'!a)
-relabel pc l l' e = do
-    evl <- e
-    send (bind pc l l' evl (\a -> Main.return pc l' a))
-               
+runLabeled :: forall pc effs. Eff ((Labeled pc) ': effs) ~> Eff effs
+runLabeled = interpret $ \case
+              Return a -> pure $ Label a
+              Bind (Label a) k -> pure $ (exec $ k a)
+  where 
+    exec :: Labeled pc (l'!b) -> (l'!b)
+    exec = \case 
+              Return a -> Label a
+              Bind (Label a) k -> exec $ k a
+
+relabel :: forall pc l l' a effs. (Member (Labeled pc) effs, l ⊑ l') => Eff effs (l!a) -> Eff effs (l'!a)
+relabel ela = do
+  la <- ela
+  lbind @pc @l @l' la (\a -> lreturn @pc @l' a)
+
+--  Return _ _ a -> lreturn pc l'
+    -- evl <- e
+  -- send (bind pc l l' evl (\a -> Main.return pc l' a))
+
 {-
 -------------------------------------------------------------------------------------
   Machinery for dynamically extending the acts-for relation 

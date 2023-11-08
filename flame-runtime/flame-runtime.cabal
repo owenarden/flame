@@ -55,6 +55,7 @@ library
                     haskell-src-meta,
                     haskell-src-exts,
                     freer-simple,
+                    singletons,
                     flame-plugin
 
 
