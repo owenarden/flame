@@ -36,7 +36,7 @@ import Data.Constraint.Unsafe
 import Data.Reflection
 -- import Data.Singletons (Apply, TyFun)
 import GHC.TypeLits (TypeError, ErrorMessage(..))
-
+import System.IO
 import Control.Monad ((>=>))
 
 -- | Freer monads.
@@ -60,7 +60,6 @@ instance Functor (Freer f) where
 
 instance Applicative (Freer f) where
   pure = Return
-
   (Return f) <*> a = fmap f a
   (Do eff k) <*> a = Do eff $ (<*> a) . k
 
@@ -68,105 +67,74 @@ instance Monad (Freer f) where
   (Return a) >>= f = f a
   (Do eff k) >>= f = Do eff (k >=> f)
 
--- | Lift an effect into the freer monad.
-toFreer :: f a -> Freer f a
-toFreer eff = Do eff Return
-
 -- | Interpret the effects in a freer monad in terms of another monad.
 interpFreer :: Monad m => (forall a. f a -> m a) -> Freer f a -> m a
 interpFreer handler (Return a) = return a
 interpFreer handler (Do eff k) = handler eff >>= interpFreer handler . k
--- -- | Type list membership test.
--- type family Find x ys where
---     Find x '[]       = 'False
---     Find x (x ': ys) = 'True
---     Find x (y ': ys) = Find x ys
--- 
--- data Find'' :: TyFun k (TyFun [k] Bool -> *) -> * where
---     Find'' :: Find'' f
--- 
--- data Find' :: k -> TyFun [k] Bool -> * where
---     Find' :: Find' x f
--- 
--- type instance Apply Find'' x = Find' x
--- type instance Apply (Find' x) xs = Find x xs
--- 
--- -- | Instance resolution for this class fails with a custom type error
--- -- if @t :: * -> *@ is in the list @r :: [* -> *]@.
--- class IfDupFound (t :: Type -> Type) (r :: [Type -> Type]) (w :: [Type -> Type])
--- 
--- -- | If we reach an empty list, that’s a success, since it means the type isn’t
--- -- in the list. For GHC >=8, we can render a custom type error that explicitly
--- -- states what went wrong.
--- instance IfDupFound t '[] w
--- instance TypeError ('Text "‘" ':<>: 'ShowType (Labeled pc')
---                     ':<>: 'Text "’ is a duplicate member of the type-level list"
---                     ':$$: 'Text "  ‘" ':<>: 'ShowType w ':<>: 'Text "’"
---                     ':$$: 'Text "In the constraint ("
---                     ':<>: 'ShowType (Labeled pc) ':<>: 'Text ")"
---                     ) 
---                     => IfDupFound (Labeled pc') ((Labeled pc') ': r) w
--- instance {-# OVERLAPPABLE #-} IfDupFound (Labeled pc) r w => IfDupFound (Labeled pc) (t' ': r) w
--- 
--- class (Member (Labeled pc) effs) => LabeledMember (pc :: KPrin) effs where
 
----- | Base case; element is at the current position in the list and nowhere else.
---instance (Member (Labeled (pc::KPrin)) ((Labeled pc) ': r)) => --, IfDupFound (Labeled pc') r r) => 
---    LabeledMember pc ((Labeled pc) ': r) where
---
----- | Recursion; element is not at the current position, but is somewhere in the
----- list.
---instance {-# INCOHERENT #-} (LabeledMember pc r) => LabeledMember pc (t' ': r) where
+-- | Lift an effect into the freer monad.
+toFreer :: f a -> Freer f a
+toFreer eff = Do eff Return
 
 -- instance (Member (Labeled pc) r) => LabeledMember pc r where
-
-
 data (l::KPrin) ! a  where
-  Label :: a  -> l!a
+  Seal :: { unseal :: a }  -> l!a
 
-type Use pc = forall pc a l. (l⊑pc) => (l ! a) -> a
+type Clearance pc = forall a l. (l ⊑ pc) => l!a -> a
 
+-- type Use pc = forall pc a l. (l⊑pc) => (l ! a) -> a
 data LabeledSig m (pc::KPrin) a where 
-    LReturn :: (pc ⊑ l) => a -> LabeledSig m pc (l!a)
-    LBind :: (l ⊑ l') => l!a -> (a -> Labeled m pc (l'!b)) -> LabeledSig m pc (l'!b)
+    Restrict :: Monad m => SPrin pc -> (Clearance pc -> m a) -> LabeledSig m pc (pc!a)
+    Protect  :: (Monad m, pc ⊑ l) => a -> LabeledSig m pc (l!a)
+    Use      :: (Monad m, l' ⊑ l, l' ⊑ pc') => 
+      l'!b -> (b -> Labeled m pc' (l!a)) -> LabeledSig m pc (l!a)
 
 type Labeled m pc = Freer (LabeledSig m pc)
--- data Labeled (pc::KPrin) a where 
---     Return :: forall pc l a. (pc ⊑ l) => a -> Labeled pc (l!a)
---     Bind :: forall pc l l' a b. (l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Labeled pc (l'!b)
--- 
-lreturn :: (pc ⊑ l) => a -> Eff effs (l!a)
-lreturn a = send (Return @pc @l a)
--- 
--- lbind :: forall pc l l' a b effs. (Member (Labeled pc) effs, l ⊑ l', l ⊑ pc) => l!a -> (a -> Labeled pc (l'!b)) -> Eff effs (l'!b)
--- lbind la k = send (Bind @pc @l @l' la k)
--- 
--- runLabeled :: forall pc effs. Eff ((Labeled pc) ': effs) ~> Eff effs
--- runLabeled = interpret $ \case
---               Return a -> pure $ Label a
---               Bind (Label a) k -> pure $ (exec $ k a)
---   where 
---     exec :: Labeled pc (l'!b) -> (l'!b)
---     exec = \case 
---               Return a -> Label a
---               Bind (Label a) k -> exec $ k a
+ 
+restrict :: Monad m => SPrin pc -> (Clearance pc -> m a) -> Labeled m pc (pc!a)
+restrict pc ma = toFreer (Restrict pc ma)
 
---- relabel :: forall pc l l' a effs. (Member (Labeled pc) effs, l ⊑ l') => Eff effs (l!a) -> Eff effs (l'!a)
---- relabel ela = do
----   la <- ela
----   lbind @pc @l @l' la (\a -> lreturn @pc @l' a)
---- 
---  Return _ _ a -> lreturn pc l'
-    -- evl <- e
-  -- send (bind pc l l' evl (\a -> Main.return pc l' a))
+protect :: (Monad m, pc ⊑ l) => a -> Labeled m pc (l!a)
+protect a = toFreer (Protect a)
 
-{-
--------------------------------------------------------------------------------------
-  Machinery for dynamically extending the acts-for relation 
-  Modified from: https://www.schoolofhaskell.com/user/thoughtpolice/using-reflection
--------------------------------------------------------------------------------------
--}
-     
+use :: (Monad m, l' ⊑ l, l' ⊑ pc') => l'!b -> (b -> Labeled m pc' (l!a)) -> Labeled m pc (l!a)
+use b k = toFreer (Use b k)
+
+lfmap :: (Monad m, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l') => 
+    (a -> b) -> l!a -> Labeled m pc (l'!b)
+lfmap f x = use x (protect . f)
+
+relabel :: (Monad m, l ⊑ l', pc ⊑ l') => l!a -> Labeled m pc (l'!a)
+relabel = lfmap id 
+
+relabel' :: (Monad m, l ⊑ l', pc ⊑ l') => Labeled m pc (l!a) -> Labeled m pc (l'!a)
+relabel' e = e >>= relabel
+
+runLabeled :: Monad m => Labeled m pc a -> m a
+runLabeled = interpFreer handler
+  where
+    handler :: Monad m => forall a. LabeledSig m pc a -> m a
+    handler (Restrict pc ma) = ma unseal >>= (return . Seal)
+    handler (Protect a) = pure (Seal a)
+    handler (Use (Seal b) k)  = runLabeled $ k b 
+
+chooseSecret :: -- (l ⊑ pc, l' ⊑ pc) => 
+    SPrin l -> l!Bool -> l!Int -> l!Int -> Labeled IO pc (l!())
+chooseSecret pc lb n1 n2 = use lb 
+     (\b ->  if b then
+                 relabel' $ s_putStrLn n1 
+             else 
+                 relabel' $ s_putStrLn n2)
+   where 
+     s_putStrLn la = restrict pc (\un -> putStrLn (show (un la)))
+        
+
+type Alice = KName "Alice"
+alice :: SPrin Alice
+alice = SName (Proxy :: Proxy "Alice")
+main :: IO (Alice!())
+main = runLabeled $ chooseSecret alice (Seal True) (Seal 1) (Seal 2)
+
 {-
   A type class representing the assumption context.
   Delegations are added to the assumption context via 'using'
@@ -230,5 +198,3 @@ eq p q | (dyn p) == (dyn q) =
     unsafeAssume ((st q) ≽ (st p)) $ Just Equiv
 eq p q = Nothing
 
-main :: IO ()
-main = undefined
