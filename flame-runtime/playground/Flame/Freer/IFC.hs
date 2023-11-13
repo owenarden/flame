@@ -26,12 +26,10 @@
 {-# OPTIONS_GHC -fplugin Flame.Solver -fobject-code #-}
 
 import Flame.Principals
-import Control.Monad.Freer
 import Data.Type.Bool
 import Data.Proxy (Proxy(..))
 import Data.Kind (Type)
 import Data.Constraint
-import Data.OpenUnion.Internal
 import Data.Constraint.Unsafe
 import Data.Reflection
 -- import Data.Singletons (Apply, TyFun)
