@@ -68,21 +68,34 @@ restrict pc ma = toFreer (Restrict pc ma)
 protect :: (Monad m, pc ⊑ l) => a -> Labeled m pc (l!a)
 protect a = toFreer (Protect a)
 
-label :: a -> (l!a)
-label = runIdentity . runLabeled . protect 
-
 use :: (Monad m, l' ⊑ l, l' ⊑ pc') => l'!b -> (b -> Labeled m pc' (l!a)) -> Labeled m pc (l!a)
 use b k = toFreer (Use b k)
 
-lfmap :: (Monad m, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l') =>
-    (a -> b) -> l!a -> Labeled m pc (l'!b)
-lfmap f x = use x (protect . f)
 
-relabel :: (Monad m, l ⊑ l', pc ⊑ l') => l!a -> Labeled m pc (l'!a)
-relabel = lfmap id
+-- relabel :: (Monad m, l ⊑ l', pc ⊑ l') => l!a -> Labeled m pc (l'!a)
+-- relabel = lfmap id
 
-relabel' :: (Monad m, l ⊑ l', pc ⊑ l') => Labeled m pc (l!a) -> Labeled m pc (l'!a)
-relabel' e = e >>= relabel
+-- relabel' :: (Monad m, l ⊑ l', pc ⊑ l') => Labeled m pc (l!a) -> Labeled m pc (l'!a)
+-- relabel' e = e >>= relabel
+
+label :: a -> l!a
+label = runIdentity . runLabeled . protect
+
+relabel :: l ⊑ l' => l!a -> l'!a
+relabel = runIdentity . runLabeled . \x -> use x protect
+
+join :: (l ⊑ l'', l' ⊑ l'') => l!(l'!a) -> l''!a
+join = runIdentity . runLabeled . \x -> use x (\y -> use y (\z -> protect z))
+
+join' :: (Monad m, l ⊑ l'', l' ⊑ l'') => Labeled m pc (l!(l'!a)) -> Labeled m pc (l''!a)
+join' lx = lx >>= (\x -> use x (\y -> use y (\z -> protect z)))
+
+bind :: forall l l' a b. l ⊑ l' => l!a -> (a -> l'!b) -> l'!b
+bind la k = runIdentity . runLabeled $ use la (\a -> join' @_ @l' @l' @l' $ protect $ k a)
+
+fmap :: (Monad m, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l') =>
+    (a -> b) -> l!a -> l'!b
+fmap f = runIdentity . runLabeled . (`use` (protect . f))
 
 runLabeled :: forall pc m a. Monad m => Labeled m pc a -> m a
 runLabeled = interpFreer handler

@@ -49,7 +49,6 @@ join' lx = lx >>= (\x -> use x (\y -> use y (\z -> protect z)))
 bind :: forall l l' a b. l ⊑ l' => l!a -> (a -> l'!b) -> l'!b
 bind la k = runIdentity . runLabeled $ use la (\a -> join' @_ @l' @l' @l' $ protect $ k a)
 
-{- 
 -- | Perform a local computation at a given location.
 s_locally :: KnownSymbol loc
         => (Proxy loc, SPrin pc, SPrin l) -- ^ Location performing the local computation.
@@ -116,6 +115,7 @@ bookseller = do
  --       buyer_putStrLn $ label "The book's price is out of the budget"
  --       return Nothing
 
+{- 
 ---- `bookseller'` is a simplified version of `bookseller` that utilizes `~~>`
 --bookseller' :: Choreo IO (Maybe Day @ "buyer")
 --bookseller' = do
