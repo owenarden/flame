@@ -18,6 +18,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:  Flame.Assert,
                     Flame.TCB.IFC, 
+                    Flame.TCB.Freer.IFC, 
                     Flame.TCB.Assume, 
                     Flame.IFC,
                     Flame.Runtime.IO,
@@ -38,7 +39,7 @@ library
                     OverloadedStrings, AllowAmbiguousTypes, 
                     UndecidableInstances, IncoherentInstances, Rank2Types, 
                     ConstraintKinds, ScopedTypeVariables, 
-                    FunctionalDependencies, DataKinds
+                    FunctionalDependencies, DataKinds, PackageImports
   build-depends:    base >=4.9 && <5.0,
                     constraints,
                     reflection,
@@ -54,7 +55,8 @@ library
                     template-haskell,
                     haskell-src-meta,
                     haskell-src-exts,
-                    -- freer-simple,
+                    freer-simple,
+                    HasChor,
                     -- singletons,
                     flame-plugin
 

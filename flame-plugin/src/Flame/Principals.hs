@@ -61,7 +61,7 @@ promote strings to symbols.
 data SPrin :: KPrin -> * where
   STop   :: SPrin KTop
   SBot   :: SPrin KBot
-  SName  :: forall (n :: Symbol). Proxy n -> SPrin (KName n)
+  SName  :: forall (n :: Symbol). { sym :: Proxy n } -> SPrin (KName n)
   SConj  :: SPrin p -> SPrin q -> SPrin (KConj p q)
   SDisj  :: SPrin p -> SPrin q -> SPrin (KDisj p q)
   SConf  :: SPrin p -> SPrin (KConf p)

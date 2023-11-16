@@ -41,7 +41,8 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
 extra-deps:
-- freer-simple-1.2.1.2@sha256:39417ebbb47e96a40097aaeb8185fbf0b8887f7a93596a7a2c0e06e30e5209e2,3206
+- url: https://hackage.haskell.org/package/freer-simple-1.2.1.2/freer-simple-1.2.1.2.tar.gz
+- url: https://hackage.haskell.org/package/HasChor-0.1.0.1/HasChor-0.1.0.1.tar.gz
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
