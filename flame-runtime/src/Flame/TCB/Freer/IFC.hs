@@ -85,13 +85,13 @@ relabel :: l ⊑ l' => l!a -> l'!a
 relabel = runIdentity . runLabeled . \x -> use x protect
 
 join :: (l ⊑ l'', l' ⊑ l'') => l!(l'!a) -> l''!a
-join = runIdentity . runLabeled . \x -> use x (\y -> use y (\z -> protect z))
+join = runIdentity . runLabeled . \x -> use x (`use` protect)
 
 join' :: (Monad m, l ⊑ l'', l' ⊑ l'') => Labeled m pc (l!(l'!a)) -> Labeled m pc (l''!a)
-join' lx = lx >>= (\x -> use x (\y -> use y (\z -> protect z)))
+join' lx = lx >>= (\x -> use x (`use` protect))
 
 bind :: forall l l' a b. l ⊑ l' => l!a -> (a -> l'!b) -> l'!b
-bind la k = runIdentity . runLabeled $ use la (\a -> join' @_ @l' @l' @l' $ protect $ k a)
+bind la k = runIdentity . runLabeled $ use la (join' @_ @l' @l' @l' . protect . k)
 
 fmap :: (Monad m, l ⊑ l', pc ⊑ pc', l ⊑ pc', pc' ⊑ l') =>
     (a -> b) -> l!a -> l'!b
