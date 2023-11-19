@@ -5,6 +5,7 @@
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE TypeOperators, PostfixOperators #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -fplugin Flame.Solver -fobject-code #-}
 
 module Main where
@@ -17,8 +18,9 @@ import Data.Proxy
 import Data.Time
 import System.Environment
 import GHC.TypeLits
-import Control.Monad.Identity
-import "freer-simple" Control.Monad.Freer
+import Control.Monad.Identity (Identity(..), runIdentity)
+import "freer-simple" Control.Monad.Freer as S
+import "HasChor" Control.Monad.Freer (interpFreer, toFreer)
 
 import Flame.Principals
 import Flame.TCB.Freer.IFC
@@ -31,47 +33,38 @@ type Seller = N "seller"
 seller :: SPrin Seller
 seller = SName (Proxy :: Proxy "seller")
 
-lift :: (Monad m, Monad n) => m a -> m (n a)
-lift ma = ma >>= (return . return)
+inlabel :: l!(a @ loc) -> (l!a) @ loc
+inlabel lal = wrap $ bind lal (label . unwrap)
 
-label :: a -> l!a
-label = runIdentity . runLabeled . protect 
+outlabel :: (l!a) @ loc -> l!(a @ loc) 
+outlabel lal = bind (unwrap lal) (label . wrap)
 
-relabel :: l ⊑ l' => l!a -> l'!a
-relabel = runIdentity . runLabeled . \x -> use x protect
+injoin :: forall l l' l'' a loc. (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> (l''!a) @ loc
+injoin = wrap . join . unwrap . inlabel
 
-join :: (l ⊑ l'', l' ⊑ l'') => l!(l'!a) -> l''!a
-join = runIdentity . runLabeled . \x -> use x \y -> use y \z -> protect z
-
-join' :: (Monad m, l ⊑ l'', l' ⊑ l'') => Labeled m pc (l!(l'!a)) -> Labeled m pc (l''!a)
-join' lx = lx >>= (\x -> use x (\y -> use y (\z -> protect z)))
-
-bind :: forall l l' a b. l ⊑ l' => l!a -> (a -> l'!b) -> l'!b
-bind la k = runIdentity . runLabeled $ use la (\a -> join' @_ @l' @l' @l' $ protect $ k a)
+outjoin :: (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> l''!(a @ loc)
+outjoin llal = bind llal (\lal -> bind (unwrap lal) $ label . wrap)
 
 -- | Perform a local computation at a given location.
-s_locally :: KnownSymbol loc
-        => (Proxy loc, SPrin pc, SPrin l) -- ^ Location performing the local computation.
-        -> (Unwrap loc -> Labeled m pc (l!a)) -- ^ The local computation given a constrained
-                                          -- unwrap funciton.
-        -> Labeled (Choreo (Labeled m pc)) pc (l!a @ loc)
-s_locally (loc, pc, l) k = restrict pc $ \_ -> loc `locally` k
+s_locally :: forall pc loc_pc l loc m a. (Monad m, KnownSymbol loc, pc ⊑ loc_pc, pc ⊑ l)
+               => SPrin pc 
+               -> (SPrin (N loc), SPrin loc_pc, SPrin l)
+               -> (Unwrap loc -> Labeled m loc_pc (l!a))
+               -> Labeled (Choreo m) pc ((l!a) @ loc)
+s_locally pc (loc, loc_pc, l) k = do
+  result <- restrict pc (\_ -> locally (sym loc) $ (\un -> runLabeled $ k un))
+  return $ inlabel (outjoin @pc @l result)
 
-(~>:) :: (Show a, Read a, KnownSymbol l, KnownSymbol l', (N l') ≽ (C pc), (N l) ≽ (I pc))
-     => (Proxy l, SPrin pc, a @ l)  -- ^ A triple of a sender's location, a clearance, 
+(~>:) :: (Show a, Read a, KnownSymbol loc, KnownSymbol loc', (N loc') ≽ (C pc), (N loc) ≽ (I pc))
+     => (Proxy loc, SPrin pc, SPrin l, (l!a) @ loc)  -- ^ A triple of a sender's location, a clearance, 
                                            -- and a value located
                                            -- at the sender
-     -> Proxy l'                           -- ^ A receiver's location.
-     -> Labeled (Choreo m) pc (a @ l')
-(~>:) (l, pc, a) l' = do
-  result <- runChoreo ((l, a) ~> l')
-  return result
+     -> Proxy loc'                           -- ^ A receiver's location.
+     -> Labeled (Choreo m) pc ((pc!(l!a)) @ loc')
+(~>:) (loc, pc, l, la) loc' = do
+  result <- restrict pc (\_ -> ((loc, la) ~> loc'))
+  return $ inlabel result
 
-buyer_putStrLn :: l ⊑ Buyer => l!a -> Labeled IO Buyer (Buyer!())
-buyer_putStrLn la = restrict buyer (\open -> putStrLn (show $ open la))
-
-buyer_getLine :: Labeled IO Buyer (Buyer!String)
-buyer_getLine = restrict buyer (\un -> getLine)
 -- | Conditionally execute choreographies based on a located value.
 s_cond :: (Show a, Read a, KnownSymbol l)
      => (Proxy l, SPrin pc, (a @ l)) -- ^ A pair of a location and a scrutinee located on
@@ -81,6 +74,19 @@ s_cond :: (Show a, Read a, KnownSymbol l)
      -> Labeled (Choreo m) pc (pc!b)
 s_cond (l, pc, la) c = restrict pc $ \_ -> cond (l, la) (\la -> runLabeled $ c la)
 
+s_putStrLn :: Show a => SPrin pc -> (l ⊑ pc) => l!a -> Labeled IO pc (pc!())
+s_putStrLn pc la = restrict pc (\open -> putStrLn (show $ open la))
+
+s_getLine :: SPrin pc -> Labeled IO pc (pc!String)
+s_getLine pc = restrict pc (\_ -> getLine)
+
+buyer_putStrLn :: (Show a, l ⊑ Buyer) => l!a -> Labeled IO Buyer (Buyer!())
+buyer_putStrLn =  s_putStrLn buyer
+
+buyer_getLine :: Labeled IO Buyer (Buyer!String)
+buyer_getLine = s_getLine buyer
+
+{-
 -- | `bookseller` is a choreography that implements the bookseller protocol.
 bookseller :: _ -- Labeled (Choreo IO) Buyer ((Buyer ! Maybe Day) @ "buyer")
 bookseller = do
@@ -162,6 +168,7 @@ main = do
     cfg = mkHttpConfig [ ("buyer",  ("localhost", 4242))
                        , ("seller", ("localhost", 4343))
                        ]
+-}
 -}
 main :: IO ()
 main = undefined

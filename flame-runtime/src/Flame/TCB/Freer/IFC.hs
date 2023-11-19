@@ -50,19 +50,21 @@ import Control.Monad.Identity
 -- instance (Member (Labeled pc) r) => LabeledMember pc r where
 data (l::KPrin) ! a  where
   Seal :: { unseal :: a }  -> l!a
+  deriving (Show, Read) -- these instances should be explicitly
+                        -- most likely, they should encrypt and decrypt
 
 type Clearance pc = forall a l. (l ⊑ pc) => l!a -> a
 
 -- type Use pc = forall pc a l. (l⊑pc) => (l ! a) -> a
 data LabeledSig m (pc::KPrin) a where
-    Restrict :: Monad m => SPrin pc -> (Clearance pc -> m a) -> LabeledSig m pc (pc!a)
+    Restrict :: (Monad m, pc ⊑ l) => !(SPrin pc) -> (Clearance pc -> m a) -> LabeledSig m pc (l!a)
     Protect  :: (Monad m, pc ⊑ l) => a -> LabeledSig m pc (l!a)
     Use      :: (Monad m, l' ⊑ l, l' ⊑ pc') =>
       l'!b -> (b -> Labeled m pc' (l!a)) -> LabeledSig m pc (l!a)
 
 type Labeled m pc = Freer (LabeledSig m pc)
 
-restrict :: Monad m => SPrin pc -> (Clearance pc -> m a) -> Labeled m pc (pc!a)
+restrict :: SPrin pc -> (Monad m, pc ⊑ l) => (Clearance pc -> m a) -> Labeled m pc (l!a)
 restrict pc ma = toFreer (Restrict pc ma)
 
 protect :: (Monad m, pc ⊑ l) => a -> Labeled m pc (l!a)
@@ -71,20 +73,13 @@ protect a = toFreer (Protect a)
 use :: (Monad m, l' ⊑ l, l' ⊑ pc') => l'!b -> (b -> Labeled m pc' (l!a)) -> Labeled m pc (l!a)
 use b k = toFreer (Use b k)
 
-
--- relabel :: (Monad m, l ⊑ l', pc ⊑ l') => l!a -> Labeled m pc (l'!a)
--- relabel = lfmap id
-
--- relabel' :: (Monad m, l ⊑ l', pc ⊑ l') => Labeled m pc (l!a) -> Labeled m pc (l'!a)
--- relabel' e = e >>= relabel
-
-label :: a -> l!a
+label :: forall l a. a -> l!a
 label = runIdentity . runLabeled . protect
 
-relabel :: l ⊑ l' => l!a -> l'!a
+relabel :: forall l l' a. l ⊑ l' => l!a -> l'!a
 relabel = runIdentity . runLabeled . \x -> use x protect
 
-join :: (l ⊑ l'', l' ⊑ l'') => l!(l'!a) -> l''!a
+join :: forall l l' l'' a. (l ⊑ l'', l' ⊑ l'') => l!(l'!a) -> l''!a
 join = runIdentity . runLabeled . \x -> use x (`use` protect)
 
 join' :: (Monad m, l ⊑ l'', l' ⊑ l'') => Labeled m pc (l!(l'!a)) -> Labeled m pc (l''!a)

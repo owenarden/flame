@@ -62,12 +62,12 @@ data SPrin :: KPrin -> * where
   STop   :: SPrin KTop
   SBot   :: SPrin KBot
   SName  :: forall (n :: Symbol). { sym :: Proxy n } -> SPrin (KName n)
-  SConj  :: SPrin p -> SPrin q -> SPrin (KConj p q)
-  SDisj  :: SPrin p -> SPrin q -> SPrin (KDisj p q)
-  SConf  :: SPrin p -> SPrin (KConf p)
-  SInteg :: SPrin p -> SPrin (KInteg p)
-  SVoice :: SPrin p -> SPrin (KVoice p)
-  SEye   :: SPrin p -> SPrin (KEye   p)
+  SConj  :: !(SPrin p) -> !(SPrin q) -> SPrin (KConj p q)
+  SDisj  :: !(SPrin p) -> !(SPrin q) -> SPrin (KDisj p q)
+  SConf  :: !(SPrin p) -> SPrin (KConf p)
+  SInteg :: !(SPrin p) -> SPrin (KInteg p)
+  SVoice :: !(SPrin p) -> SPrin (KVoice p)
+  SEye   :: !(SPrin p) -> SPrin (KEye   p)
 
 deriving instance Show (SPrin p)
 deriving instance Eq (SPrin p)
@@ -182,7 +182,7 @@ want to construct a type-level representation for runtime principals.
 Restricting <=> and UnsafeAssoc to trusted code ensures only withPrin
 can associate runtime principals wth singleton principal types.
 |-}
-data DPrin p = UnsafeAssoc { dyn :: Prin, st :: SPrin p } 
+data DPrin p = UnsafeAssoc { dyn :: Prin, st :: !(SPrin p) } 
 dynamic = dyn
 static = st 
 (<=>) :: Prin -> SPrin p -> DPrin p
