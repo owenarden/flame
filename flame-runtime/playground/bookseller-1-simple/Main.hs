@@ -33,17 +33,17 @@ type Seller = N "seller"
 seller :: SPrin Seller
 seller = SName (Proxy :: Proxy "seller")
 
-inlabel :: l!(a @ loc) -> (l!a) @ loc
-inlabel lal = wrap $ bind lal (label . unwrap)
+label_in :: l!(a @ loc) -> (l!a) @ loc
+label_in lal = wrap $ bind lal (label . unwrap)
 
-outlabel :: (l!a) @ loc -> l!(a @ loc) 
-outlabel lal = bind (unwrap lal) (label . wrap)
+-- label_out :: (l!a) @ loc -> l!(a @ loc) 
+-- label_out lal = bind (unwrap lal) (label . wrap)
 
-injoin :: forall l l' l'' a loc. (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> (l''!a) @ loc
-injoin = wrap . join . unwrap . inlabel
+-- join_in :: forall l l' l'' a loc. (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> (l''!a) @ loc
+-- join_in = wrap . join . unwrap . label_in
 
-outjoin :: (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> l''!(a @ loc)
-outjoin llal = bind llal (\lal -> bind (unwrap lal) $ label . wrap)
+join_out :: (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> l''!(a @ loc)
+join_out llal = bind llal (\lal -> bind (unwrap lal) $ label . wrap)
 
 -- | Perform a local computation at a given location.
 s_locally :: forall pc loc_pc l loc m a. (Monad m, KnownSymbol loc, pc ⊑ loc_pc, pc ⊑ l)
@@ -53,7 +53,7 @@ s_locally :: forall pc loc_pc l loc m a. (Monad m, KnownSymbol loc, pc ⊑ loc_p
                -> Labeled (Choreo m) pc ((l!a) @ loc)
 s_locally pc (loc, loc_pc, l) k = do
   result <- restrict pc (\_ -> locally (sym loc) $ (\un -> runLabeled $ k un))
-  return $ inlabel (outjoin @pc @l result)
+  return $ label_in (join_out @pc @l result)
 
 (~>:) :: (Show a, Read a, KnownSymbol loc, KnownSymbol loc', (N loc') ≽ (C pc), (N loc) ≽ (I pc))
      => (Proxy loc, SPrin pc, SPrin l, (l!a) @ loc)  -- ^ A triple of a sender's location, a clearance, 
@@ -63,7 +63,7 @@ s_locally pc (loc, loc_pc, l) k = do
      -> Labeled (Choreo m) pc ((pc!(l!a)) @ loc')
 (~>:) (loc, pc, l, la) loc' = do
   result <- restrict pc (\_ -> ((loc, la) ~> loc'))
-  return $ inlabel result
+  return $ label_in result
 
 -- | Conditionally execute choreographies based on a located value.
 s_cond :: (Show a, Read a, KnownSymbol l)
