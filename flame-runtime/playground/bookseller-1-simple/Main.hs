@@ -33,25 +33,37 @@ type Seller = N "seller"
 seller :: SPrin Seller
 seller = SName (Proxy :: Proxy "seller")
 
+type BS = (Buyer \/ Seller)
+
+bs :: SPrin BS
+bs = (buyer *\/ seller)
+
+type FromBuyer = ((C (Buyer \/ Seller)) /\ (I Buyer))
+fromBuyer :: SPrin FromBuyer
+fromBuyer = (((buyer *\/ seller)*->) */\ (buyer*<-))
+
+type FromSeller = ((C (Buyer \/ Seller)) /\ (I Seller))
+fromSeller :: SPrin FromSeller
+fromSeller = (((buyer *\/ seller)*->) */\ (seller*<-))
+
 label_in :: l!(a @ loc) -> (l!a) @ loc
 label_in lal = wrap $ bind lal (label . unwrap)
 
 -- label_out :: (l!a) @ loc -> l!(a @ loc) 
 -- label_out lal = bind (unwrap lal) (label . wrap)
 
--- join_in :: forall l l' l'' a loc. (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> (l''!a) @ loc
--- join_in = wrap . join . unwrap . label_in
+join_in :: forall l l' l'' a loc. (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> (l''!a) @ loc
+join_in = wrap . join . unwrap . label_in
 
 join_out :: (l ⊑ l'', l' ⊑ l'') => l!((l'!a) @ loc) -> l''!(a @ loc)
 join_out llal = bind llal (\lal -> bind (unwrap lal) $ label . wrap)
 
 -- | Perform a local computation at a given location.
 s_locally :: forall pc loc_pc l loc m a. (Monad m, KnownSymbol loc, pc ⊑ loc_pc, pc ⊑ l)
-               => SPrin pc 
-               -> (SPrin (N loc), SPrin loc_pc, SPrin l)
+               => (SPrin pc, SPrin (N loc), SPrin loc_pc, SPrin l)
                -> (Unwrap loc -> Labeled m loc_pc (l!a))
                -> Labeled (Choreo m) pc ((l!a) @ loc)
-s_locally pc (loc, loc_pc, l) k = do
+s_locally (pc, loc, loc_pc, l) k = do
   result <- restrict pc (\_ -> locally (sym loc) $ (\un -> runLabeled $ k un))
   return $ label_in (join_out @pc @l result)
 
@@ -80,46 +92,53 @@ s_putStrLn pc la = restrict pc (\open -> putStrLn (show $ open la))
 s_getLine :: SPrin pc -> Labeled IO pc (pc!String)
 s_getLine pc = restrict pc (\_ -> getLine)
 
-buyer_putStrLn :: (Show a, l ⊑ Buyer) => l!a -> Labeled IO Buyer (Buyer!())
-buyer_putStrLn =  s_putStrLn buyer
+safe_putStrLn :: (Show a, l ⊑ BS) => l!a 
+                      -> Labeled IO BS (BS!())
+safe_putStrLn =  s_putStrLn bs
 
-buyer_getLine :: Labeled IO Buyer (Buyer!String)
-buyer_getLine = s_getLine buyer
+buyer_getLine :: Labeled IO FromBuyer (FromBuyer!String)
+buyer_getLine = s_getLine fromBuyer
 
-{-
 -- | `bookseller` is a choreography that implements the bookseller protocol.
-bookseller :: _ -- Labeled (Choreo IO) Buyer ((Buyer ! Maybe Day) @ "buyer")
+bookseller :: Labeled (Choreo IO) BS ((FromBuyer ! Maybe Day) @ "buyer")
 bookseller = do
   -- the buyer node prompts the user to enter the title of the book to buy
-  title <- runChoreo $ (sym buyer, buyer) `s_locally` \_ -> do
-             buyer_putStrLn $ label "Enter the title of the book to buy"
-             buyer_getLine
+  title <- (bs, buyer, bs, fromBuyer) `s_locally` \_ -> do
+             safe_putStrLn $ label "Enter the title of the book to buy"
+             relabel' bs buyer_getLine
+
   -- the buyer sends the title to the seller
-  title' <- (sym buyer, ((SName seller)*->), title) ~>: sym seller
+  title' <- (sym buyer, bs, fromBuyer, title) ~>: sym seller
   return title'
-
- -- -- the seller checks the price of the book
- -- price <- (sym seller, SName seller) `s_locally` \un -> return $ priceOf (un title')
- -- -- the seller sends back the price of the book to the buyer
- -- price' <- (seller, price) ~>: sym buyer
-
- -- -- the buyer decides whether to buy the book or not
- -- decision <- (sym buyer, buyer) `s_locally` \un -> return $ (un price') < budget
-
- -- -- if the buyer decides to buy the book, the seller sends the delivery date to the buyer
- -- s_cond (sym buyer, buyer, decision) \case
- --   True  -> do
- --     deliveryDate  <- (sym seller, seller) `s_locally` \un -> return $ deliveryDateOf (un title')
- --     deliveryDate' <- (seller, deliveryDate) ~>: sym buyer
-
- --     (sym buyer, buyer) `s_locally` \un -> do
- --       buyer_putStrLn $ label ("The book will be delivered on " ++ show (un deliveryDate'))
- --       return $ Just (un deliveryDate')
-
- --   False -> do
- --     (sym buyer, buyer) `s_locally` \_ -> do
- --       buyer_putStrLn $ label "The book's price is out of the budget"
- --       return Nothing
+ 
+  -- the seller checks the price of the book
+  price <- (bs, seller, bs, fromSeller) `s_locally` \un -> do
+    use (join (un title')) (\t -> protect $ priceOf t)
+  -- the seller sends back the price of the book to the buyer
+  price' <- (sym seller, bs, fromSeller, price) ~>: sym buyer
+ 
+  -- the buyer decides whether to buy the book or not
+  decision <- (bs, buyer, bs, fromBuyer) `s_locally` \un -> do
+    use (join (un price')) (\p -> protect (p < budget))
+ 
+  -- if the buyer decides to buy the book, the seller sends the delivery date to the buyer
+  -- TODO: needs some label/loc manipulation...(join_in $ 
+  s_cond (sym buyer, bs, decision) $ \d -> use d \case
+    True  -> do
+      deliveryDate  <- (bs, seller, bs, fromSeller) `s_locally` \un -> do
+        use (join (un title')) (\t -> protect $ deliveryDateOf t)
+      deliveryDate' <- (sym seller, bs, fromSeller, price) ~>: sym buyer
+ 
+      (bs, buyer, bs, fromBuyer) `s_locally` \un -> do
+        use (join (un deliveryDate')) 
+          (\dd -> 
+            safe_putStrLn $ label ("The book will be delivered on " ++ show dd)
+            label $ Just dd)
+ 
+    False -> do
+      (bs, buyer, bs, fromBuyer) `s_locally` \un -> do
+        safe_putStrLn $ label "The book's price is out of the budget"
+        label $ Nothing
 
 {- 
 ---- `bookseller'` is a simplified version of `bookseller` that utilizes `~~>`
@@ -145,6 +164,7 @@ bookseller = do
 --      (sym buyer) `locally` \_ -> do
 --        putStrLn "The book's price is out of the budget"
 --        return Nothing
+-}
 
 budget :: Int
 budget = 100
@@ -168,7 +188,6 @@ main = do
     cfg = mkHttpConfig [ ("buyer",  ("localhost", 4242))
                        , ("seller", ("localhost", 4343))
                        ]
--}
--}
-main :: IO ()
-main = undefined
+
+--main :: IO ()
+---main = undefined

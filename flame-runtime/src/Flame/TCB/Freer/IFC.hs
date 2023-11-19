@@ -79,6 +79,16 @@ label = runIdentity . runLabeled . protect
 relabel :: forall l l' a. l ⊑ l' => l!a -> l'!a
 relabel = runIdentity . runLabeled . \x -> use x protect
 
+--- Is this secure? 
+-- runLabeled $ join' $ restrict high $ \un -> 
+--    if (un secret) then (runLabeled lowT) else (runLabeled lowF)
+      
+relabel' :: forall l l' pc pc' m a. (Monad m, l ⊑ l', pc ⊑ l') => 
+              SPrin pc -> Labeled m pc' (l!a) -> Labeled m pc (l'!a)
+relabel' pc e = join' $ restrict pc $ \_ -> do 
+  x <- runLabeled e
+  return $ relabel x
+  
 join :: forall l l' l'' a. (l ⊑ l'', l' ⊑ l'') => l!(l'!a) -> l''!a
 join = runIdentity . runLabeled . \x -> use x (`use` protect)
 
