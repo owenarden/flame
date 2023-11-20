@@ -92,7 +92,7 @@ relabel' pc e = join' $ restrict pc $ \_ -> do
 join :: forall l l' l'' a. (l ⊑ l'', l' ⊑ l'') => l!(l'!a) -> l''!a
 join = runIdentity . runLabeled . \x -> use x (`use` protect)
 
-join' :: (Monad m, l ⊑ l'', l' ⊑ l'') => Labeled m pc (l!(l'!a)) -> Labeled m pc (l''!a)
+join' :: forall l l' l'' pc m a. (Monad m, l ⊑ l'', l' ⊑ l'') => Labeled m pc (l!(l'!a)) -> Labeled m pc (l''!a)
 join' lx = lx >>= (\x -> use x (`use` protect))
 
 bind :: forall l l' a b. l ⊑ l' => l!a -> (a -> l'!b) -> l'!b

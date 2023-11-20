@@ -21,7 +21,7 @@
       }
     ]
   },
-  "ghcid.command": "make ghcid",
+  "ghcid.command": "#make ghcid",
   "goto-documentation.customDocs": {
     "hs": "https://hoogle.haskell.org/?hoogle=${query}"
   }
